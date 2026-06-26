@@ -117,6 +117,7 @@
       <button data-view="stats">Stats</button>
     </div>
     <span class="grow"></span>
+    <button class="ghost" id="archBtn" style="display:none;">Archived</button>
     <button class="ghost" id="undoBtn" title="Undo (Ctrl/Cmd+Z)">↶ Undo</button>
     <button class="ghost" id="addBtn">+ Habit</button>
   </div>
@@ -129,6 +130,8 @@
   <div class="modal" role="dialog" aria-modal="true">
     <div class="modal-head">
       <input id="h_name" type="text" placeholder="Habit name" />
+      <button class="iconbtn" id="h_up" title="Move up">↑</button>
+      <button class="iconbtn" id="h_down" title="Move down">↓</button>
       <button class="iconbtn" id="h_close" title="Close">✕</button>
     </div>
     <div class="modal-body">
@@ -234,7 +237,7 @@ const App = (function () {
   const ICONS = ['🚴','💪','📖','✍️','🏃','🧘','💧','🥗','😴','🎸','🧹','💊','☀️','📵'];
 
   let data=null, dirty=false, editingId=null, standalone=false;
-  const undoStack=[]; let lastSerialized=null;
+  const undoStack=[]; let lastSerialized=null; let lastRenderDay=null;
 
   /* ---- persistence ---- */
   function id(){ return (window.crypto&&crypto.randomUUID)?crypto.randomUUID().slice(0,8):Math.random().toString(36).slice(2,10); }
@@ -301,6 +304,11 @@ const App = (function () {
   function completionRate(h,days){ const today=todayStr(); let sched=0,done=0;
     for(let i=0;i<days;i++){ const d=addDays(today,-i); if(scheduledOn(h,d)){ sched++; if(isDoneOn(h,d)) done++; } } return sched?Math.round(done/sched*100):0; }
   function totalDone(h){ const m=data.log[h.id]||{}; return Object.keys(m).filter(k=>isDoneOn(h,k)).length; }
+  // "due on a specific day" — excludes weekly-target habits (which aren't pinned to a day)
+  function dueOnStrict(h,iso){ const s=h.schedule||{type:'daily'}; if(s.type==='weekly') return false; if(s.type==='days'){ const w=new Date(iso+'T00:00:00').getDay(); return (s.days||[]).includes(w); } return true; }
+  function perfectDaysCount(days){ const today=todayStr(); const act=data.habits.filter(h=>!h.archived); let n=0;
+    for(let i=0;i<days;i++){ const d=addDays(today,-i); const due=act.filter(h=>dueOnStrict(h,d)); if(due.length && due.every(h=>isDoneOn(h,d))) n++; } return n; }
+  function moveHabit(hid,dir){ const i=data.habits.findIndex(h=>h.id===hid); const j=i+dir; if(i<0||j<0||j>=data.habits.length) return; const a=data.habits; const t=a[i]; a[i]=a[j]; a[j]=t; persist(); render(); }
 
   /* ---- rendering ---- */
   const $=s=>document.querySelector(s);
@@ -313,7 +321,12 @@ const App = (function () {
     const ub=$('#undoBtn'); if(ub){ ub.disabled=!undoStack.length; ub.style.opacity=undoStack.length?'1':'.4'; }
     const today=todayStr(); const act=data.habits.filter(h=>!h.archived);
     const due=act.filter(h=>scheduledOn(h,today)); const done=due.filter(h=>isDoneOn(h,today));
-    $('#subhead').textContent = fmtDate(today) + '  ·  ' + done.length + ' of ' + due.length + ' done today';
+    let sh = fmtDate(today) + '  ·  ' + done.length + ' of ' + due.length + ' done today';
+    if(due.length && done.length===due.length) sh += '  ·  🎉 perfect day';
+    $('#subhead').textContent = sh;
+    const arch=data.habits.filter(h=>h.archived); const ab=$('#archBtn');
+    if(ab){ if(arch.length){ ab.style.display=''; ab.textContent='Archived ('+arch.length+')'; } else ab.style.display='none'; }
+    lastRenderDay = today;
     const s=$('#surface'); s.innerHTML='';
     if(data.ui.view==='grid') s.appendChild(renderGrid());
     else if(data.ui.view==='stats') s.appendChild(renderStats());
@@ -378,8 +391,11 @@ const App = (function () {
   }
 
   function renderStats(){
-    const wrap=el('div','stat-cards'); const act=data.habits.filter(h=>!h.archived);
-    if(!act.length){ wrap.appendChild(el('div','empty','No habits yet.')); return wrap; }
+    const outer=el('div'); const act=data.habits.filter(h=>!h.archived);
+    if(!act.length){ outer.appendChild(el('div','empty','No habits yet.')); return outer; }
+    const banner=el('div','small'); banner.style.cssText='margin-bottom:10px;'; banner.textContent='🎉 Perfect days (last 30): '+perfectDaysCount(30)+'  ·  habits tracked: '+act.length;
+    outer.appendChild(banner);
+    const wrap=el('div','stat-cards');
     const today=todayStr();
     act.forEach(h=>{
       const card=el('div','scard');
@@ -392,7 +408,8 @@ const App = (function () {
       card.appendChild(el('div','small','This week')); card.appendChild(wk);
       wrap.appendChild(card);
     });
-    return wrap;
+    outer.appendChild(wrap);
+    return outer;
   }
 
   /* ---- habit editor ---- */
@@ -435,6 +452,32 @@ const App = (function () {
       uiConfirm('Delete this habit and its history?', ()=>{ data.habits=data.habits.filter(x=>x.id!==tid); delete data.log[tid]; editingId=null; $('#overlay').classList.remove('open'); persist(); render(); }); };
     document.addEventListener('keydown',e=>{ if((e.ctrlKey||e.metaKey)&&(e.key==='z'||e.key==='Z')){ e.preventDefault(); undo(); } if(e.key==='Escape'&&$('#overlay').classList.contains('open')) closeEditor(); });
     window.addEventListener('beforeunload',()=>{ if(dirty) SNBridge.flushNow(); });
+    $('#archBtn').onclick=openArchived;
+    $('#h_up').onclick=()=>{ if(editingId) moveHabit(editingId,-1); };
+    $('#h_down').onclick=()=>{ if(editingId) moveHabit(editingId,1); };
+    // roll the Today view over to the new day automatically if left open past midnight
+    setInterval(()=>{ if(data && lastRenderDay && todayStr()!==lastRenderDay) render(); }, 60000);
+  }
+
+  function openArchived(){
+    const arch=data.habits.filter(h=>h.archived);
+    const ov=el('div','overlay'); ov.style.display='flex'; ov.style.zIndex='100';
+    const box=el('div','modal'); box.style.maxWidth='380px';
+    const head=el('div','modal-head','<strong style="flex:1">Archived habits</strong>');
+    const close=el('button','iconbtn','✕'); close.onclick=()=>ov.remove(); head.appendChild(close);
+    const body=el('div','modal-body');
+    if(!arch.length) body.appendChild(el('div','small','No archived habits.'));
+    arch.forEach(h=>{
+      const row=el('div','hrow');
+      const ic=el('div','hicon'); ic.textContent=h.icon||'•'; ic.style.color=h.color||'var(--fg)';
+      row.appendChild(ic); row.appendChild(el('div','hname',esc(h.name)));
+      const un=el('button','ghost','Unarchive'); un.onclick=()=>{ h.archived=false; persist(); ov.remove(); render(); };
+      const del=el('button','danger','Delete'); del.onclick=()=>{ const tid=h.id; ov.remove();
+        uiConfirm('Delete this habit and its history?', ()=>{ data.habits=data.habits.filter(x=>x.id!==tid); delete data.log[tid]; persist(); render(); }); };
+      row.appendChild(un); row.appendChild(del); body.appendChild(row);
+    });
+    box.appendChild(head); box.appendChild(body); ov.appendChild(box); document.body.appendChild(ov);
+    ov.addEventListener('mousedown',e=>{ if(e.target===ov) ov.remove(); });
   }
 
   function uiConfirm(message,onYes){
