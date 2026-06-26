@@ -106,6 +106,23 @@
   .empty { color:var(--muted); text-align:center; padding:40px 12px; }
   .iconbtn { padding:4px 6px; color:var(--muted); }
   .iconbtn:hover { color:var(--fg); }
+  .streak.risk { background:rgba(229,72,77,.13); color:var(--danger); }
+  .riskbanner { background:rgba(196,121,0,.13); color:var(--warning); border:1px solid var(--warning); border-radius:8px; padding:8px 10px; margin-bottom:12px; font-size:13px; }
+  .medal { font-size:12px; color:var(--warning); margin-top:6px; }
+  textarea { font-family:inherit; }
+
+  .month-head { display:flex; align-items:center; gap:10px; margin-bottom:12px; flex-wrap:wrap; }
+  .month-title { font-weight:600; min-width:150px; }
+  .month-head select { width:auto; margin-left:auto; }
+  .cal { display:grid; grid-template-columns:repeat(7,1fr); gap:6px; max-width:560px; }
+  .cal-dow { text-align:center; font-size:11px; color:var(--muted-2); }
+  .cal-cell { position:relative; border:1px solid var(--border); border-radius:6px; padding:4px; min-height:46px; }
+  .cal-cell.empty { border:none; }
+  .cal-cell.caltoday { outline:2px solid var(--accent); outline-offset:-2px; }
+  .cal-cell.sched { border-style:dashed; }
+  .cal-num { font-size:11px; color:var(--muted); position:relative; z-index:1; }
+  .cal-cell.filled .cal-num { color:#fff; }
+  .cal-fill { position:absolute; inset:0; background:var(--success); border-radius:5px; }
 </style>
 </head>
 <body>
@@ -114,6 +131,7 @@
     <div class="seg" id="viewSeg">
       <button data-view="today">Today</button>
       <button data-view="grid">Grid</button>
+      <button data-view="month">Month</button>
       <button data-view="stats">Stats</button>
     </div>
     <span class="grow"></span>
@@ -235,9 +253,11 @@ const App = (function () {
   const SCHEMA = 1;
   const COLORS = ['#2f6fed','#30a46c','#f5a623','#e5484d','#8e4ec6','#0aa5b8','#d6409f','#a18072'];
   const ICONS = ['🚴','💪','📖','✍️','🏃','🧘','💧','🥗','😴','🎸','🧹','💊','☀️','📵'];
+  const MILESTONES = [7,14,30,60,100,180,365];
 
   let data=null, dirty=false, editingId=null, standalone=false;
   const undoStack=[]; let lastSerialized=null; let lastRenderDay=null;
+  let monthOffset=0, monthHabit='';
 
   /* ---- persistence ---- */
   function id(){ return (window.crypto&&crypto.randomUUID)?crypto.randomUUID().slice(0,8):Math.random().toString(36).slice(2,10); }
@@ -245,7 +265,7 @@ const App = (function () {
     const mk = (name,icon,color)=>({ id:id(), name, icon, color, schedule:{type:'daily'}, track:'check', goal:1, unit:'', archived:false, createdAt:new Date().toISOString() });
     return { schema:SCHEMA,
       habits:[ mk('Cycling','🚴',COLORS[0]), mk('Off-bike exercise','💪',COLORS[1]), mk('Reading','📖',COLORS[2]), mk('Writing','✍️',COLORS[3]) ],
-      log:{}, ui:{ view:'today' } };
+      log:{}, notes:{}, ui:{ view:'today' } };
   }
   function load(text){
     let parsed=null; if(text&&text.trim()){ try{parsed=JSON.parse(text);}catch(e){parsed=null;} }
@@ -253,7 +273,7 @@ const App = (function () {
     if(standalone){ try{ const s=localStorage.getItem('sn-habits-standalone'); if(s) data=migrate(JSON.parse(s)); }catch(e){} }
     lastSerialized=JSON.stringify(data); undoStack.length=0; render();
   }
-  function migrate(d){ d.schema=d.schema||1; d.habits=d.habits||[]; d.log=d.log||{}; d.ui=d.ui||{view:'today'};
+  function migrate(d){ d.schema=d.schema||1; d.habits=d.habits||[]; d.log=d.log||{}; d.notes=d.notes||{}; d.ui=d.ui||{view:'today'};
     d.habits.forEach(h=>{ h.schedule=h.schedule||{type:'daily'}; if(typeof h.archived==='undefined') h.archived=false; if(!h.track) h.track='check'; if(typeof h.goal==='undefined') h.goal=1; }); return d; }
   function saveOut(){ const t=JSON.stringify(data); lastSerialized=t; if(standalone){ try{localStorage.setItem('sn-habits-standalone',t);}catch(e){} return; } SNBridge.save(t, previewText()); }
   function persist(){ dirty=true; if(lastSerialized!==null){ const cur=JSON.stringify(data); if(cur!==lastSerialized){ undoStack.push(lastSerialized); if(undoStack.length>60) undoStack.shift(); } } saveOut(); }
@@ -309,11 +329,18 @@ const App = (function () {
   function perfectDaysCount(days){ const today=todayStr(); const act=data.habits.filter(h=>!h.archived); let n=0;
     for(let i=0;i<days;i++){ const d=addDays(today,-i); const due=act.filter(h=>dueOnStrict(h,d)); if(due.length && due.every(h=>isDoneOn(h,d))) n++; } return n; }
   function moveHabit(hid,dir){ const i=data.habits.findIndex(h=>h.id===hid); const j=i+dir; if(i<0||j<0||j>=data.habits.length) return; const a=data.habits; const t=a[i]; a[i]=a[j]; a[j]=t; persist(); render(); }
+  // streak at risk = scheduled today, not done yet, and an active streak that today would break
+  function atRisk(h){ const today=todayStr(); if((h.schedule||{}).type==='weekly') return false; if(!scheduledOn(h,today)) return false; if(isDoneOn(h,today)) return false; return currentStreak(h)>=2; }
+  function highestMilestone(streak){ let m=0; MILESTONES.forEach(x=>{ if(streak>=x) m=x; }); return m; }
+  function noteFor(hid,iso){ return (data.notes[hid]||{})[iso]||''; }
 
   /* ---- rendering ---- */
   const $=s=>document.querySelector(s);
   const el=(tag,cls,html)=>{ const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
   const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  // Only allow a hex color or a CSS var into style attributes / properties. Blocks
+  // anything injected via a hand-edited note (e.g. a value that breaks out of the attribute).
+  function safeColor(c,fallback){ c=String(c==null?'':c); return (/^#[0-9a-fA-F]{3,8}$/.test(c)||/^var\(--[a-zA-Z0-9-]+\)$/.test(c))?c:(fallback||'var(--accent)'); }
 
   function render(){
     if(!data) return;
@@ -329,6 +356,7 @@ const App = (function () {
     lastRenderDay = today;
     const s=$('#surface'); s.innerHTML='';
     if(data.ui.view==='grid') s.appendChild(renderGrid());
+    else if(data.ui.view==='month') s.appendChild(renderMonth());
     else if(data.ui.view==='stats') s.appendChild(renderStats());
     else s.appendChild(renderToday());
   }
@@ -337,30 +365,36 @@ const App = (function () {
     const wrap=el('div','today'); const today=todayStr();
     const act=data.habits.filter(h=>!h.archived);
     if(!act.length){ wrap.appendChild(el('div','empty','No habits yet. Use “+ Habit” to add one.')); return wrap; }
+    const risk=act.filter(atRisk);
+    if(risk.length){ wrap.appendChild(el('div','riskbanner','⚠️ '+risk.length+' streak'+(risk.length>1?'s':'')+' at risk today — do them to keep your run.')); }
     act.forEach(h=>{
       const row=el('div','hrow');
-      const ic=el('div','hicon'); ic.textContent=h.icon||'•'; ic.style.color=h.color||'var(--fg)';
+      const ic=el('div','hicon'); ic.textContent=h.icon||'•'; ic.style.color=safeColor(h.color,'var(--fg)');
       const scheduled=scheduledOn(h,today);
       const name=el('div','hname'); name.innerHTML=esc(h.name)+(scheduled?'':'<span class="rest">rest day</span>');
-      const streak=currentStreak(h);
-      const sb=el('span','streak','🔥 '+streak); sb.title='Current streak';
+      const streak=currentStreak(h); const risky=atRisk(h);
+      const sb=el('span','streak'+(risky?' risk':''),'🔥 '+streak); sb.title=risky?'Do it today to keep your streak':'Current streak';
       row.appendChild(ic); row.appendChild(name); if(streak>0) row.appendChild(sb);
+      const hasNote=!!noteFor(h.id,today);
+      const nb=el('button','iconbtn'); nb.textContent='📝'; nb.style.opacity=hasNote?'1':'.3'; nb.title=hasNote?"Edit today's note":'Add a note';
+      nb.onclick=(e)=>{ e.stopPropagation(); openNote(h.id,today); }; row.appendChild(nb);
+      const celebrateIf=(prev)=>{ const now=currentStreak(h); if(now>prev && MILESTONES.includes(now)) celebrate(h,now); };
       if(h.track==='count'){
         const v=(typeof logVal(h,today)==='number')?logVal(h,today):0;
         const c=el('div','counter');
         const minus=el('button',null,'−'); minus.onclick=()=>{ incCount(h,today,-1); persist(); render(); };
         const val=el('span','val', v+' / '+(h.goal||1)+(h.unit?(' '+esc(h.unit)):''));
-        const plus=el('button',null,'+'); plus.onclick=()=>{ incCount(h,today,1); persist(); render(); };
+        const plus=el('button',null,'+'); plus.onclick=()=>{ const prev=currentStreak(h); incCount(h,today,1); persist(); render(); celebrateIf(prev); };
         c.appendChild(minus); c.appendChild(val); c.appendChild(plus); row.appendChild(c);
       } else {
-        const chk=el('div','check'+(isDoneOn(h,today)?' done':'')); chk.onclick=()=>{ toggleCheck(h,today); persist(); render(); };
+        const chk=el('div','check'+(isDoneOn(h,today)?' done':'')); chk.onclick=()=>{ const prev=currentStreak(h); toggleCheck(h,today); persist(); render(); celebrateIf(prev); };
         row.appendChild(chk);
       }
-      row.querySelector('.hname').onclick=()=>openEditor(h.id);
+      name.onclick=()=>openEditor(h.id);
       ic.onclick=()=>openEditor(h.id);
       wrap.appendChild(row);
       if(h.track==='count'){ const v=(typeof logVal(h,today)==='number')?logVal(h,today):0; const pct=Math.min(100,Math.round(v/(h.goal||1)*100));
-        const pb=el('div','pbar','<span style="width:'+pct+'%; background:'+(h.color||'var(--accent)')+'"></span>'); wrap.appendChild(pb); }
+        const pb=el('div','pbar','<span style="width:'+pct+'%; background:'+safeColor(h.color,'var(--accent)')+'"></span>'); wrap.appendChild(pb); }
     });
     return wrap;
   }
@@ -375,13 +409,14 @@ const App = (function () {
     for(let i=DAYS-1;i>=0;i--){ const d=addDays(today,-i); const dow=(new Date(d+'T00:00:00').getDay()+6)%7; head.appendChild(el('th','dow',DOW[dow])); }
     table.appendChild(head);
     act.forEach(h=>{
-      const tr=el('tr'); const lbl=el('td','label'); lbl.innerHTML='<span style="color:'+(h.color||'var(--fg)')+'">'+(h.icon||'•')+'</span> '+esc(h.name);
+      const tr=el('tr'); const lbl=el('td','label'); lbl.innerHTML='<span style="color:'+safeColor(h.color,'var(--fg)')+'">'+esc(h.icon||'•')+'</span> '+esc(h.name);
       lbl.style.cursor='pointer'; lbl.onclick=()=>openEditor(h.id); tr.appendChild(lbl);
       for(let i=DAYS-1;i>=0;i--){ const d=addDays(today,-i); const td=el('td');
         const sched=scheduledOn(h,d); const done=isDoneOn(h,d);
         const cell=el('span','cell'+(done?' done':'')+(d===today?' today':'')+(sched?'':' off'));
-        if(done) cell.style.background=h.color||'var(--success)';
-        if(sched){ cell.title=d; cell.onclick=()=>{ if(h.track==='count') setLog(h,d, done?false:(h.goal||1)); else toggleCheck(h,d); persist(); render(); }; }
+        if(done) cell.style.background=safeColor(h.color,'var(--success)');
+        cell.title=d+(noteFor(h.id,d)?(' — '+noteFor(h.id,d)):'');
+        if(sched){ cell.onclick=()=>{ if(h.track==='count') setLog(h,d, done?false:(h.goal||1)); else toggleCheck(h,d); persist(); render(); }; }
         td.appendChild(cell); tr.appendChild(td); }
       table.appendChild(tr);
     });
@@ -399,17 +434,81 @@ const App = (function () {
     const today=todayStr();
     act.forEach(h=>{
       const card=el('div','scard');
-      card.appendChild(el('h4','', '<span style="color:'+(h.color||'var(--fg)')+'">'+(h.icon||'•')+'</span> '+esc(h.name)));
+      card.appendChild(el('h4','', '<span style="color:'+safeColor(h.color,'var(--fg)')+'">'+esc(h.icon||'•')+'</span> '+esc(h.name)));
       const metric=(n,l)=>'<div class="smetric"><div class="n">'+n+'</div><div class="l">'+l+'</div></div>';
       const m=el('div','smetrics'); m.innerHTML = metric(currentStreak(h),'Current streak')+metric(longestStreak(h),'Longest')+metric(completionRate(h,30)+'%','30-day')+metric(totalDone(h),'Total');
       card.appendChild(m);
       const wk=el('div','wk'); const lbl=['M','T','W','T','F','S','S']; const ws=startOfWeek(today);
-      for(let i=0;i<7;i++){ const d=addDays(ws,i); const on=(d<=today)&&isDoneOn(h,d); const sp=el('span',on?'on':''); if(on) sp.style.background=h.color||'var(--success)'; sp.title=d; wk.appendChild(sp); }
+      for(let i=0;i<7;i++){ const d=addDays(ws,i); const on=(d<=today)&&isDoneOn(h,d); const sp=el('span',on?'on':''); if(on) sp.style.background=safeColor(h.color,'var(--success)'); sp.title=d; wk.appendChild(sp); }
       card.appendChild(el('div','small','This week')); card.appendChild(wk);
+      const hm=highestMilestone(currentStreak(h)); if(hm) card.appendChild(el('div','medal','🏅 '+hm+'-day milestone reached'));
       wrap.appendChild(card);
     });
     outer.appendChild(wrap);
     return outer;
+  }
+
+  /* ---- Month calendar ---- */
+  function renderMonth(){
+    const wrap=el('div','month'); const today=todayStr();
+    const base=new Date(today+'T00:00:00'); base.setDate(1); base.setMonth(base.getMonth()+monthOffset);
+    const year=base.getFullYear(), mon=base.getMonth();
+    const hd=el('div','month-head');
+    const prev=el('button','iconbtn','◀'); prev.title='Previous month'; prev.onclick=()=>{ monthOffset--; render(); };
+    const next=el('button','iconbtn','▶'); next.title='Next month'; if(monthOffset>=0){ next.disabled=true; next.style.opacity='.35'; } next.onclick=()=>{ if(monthOffset<0){ monthOffset++; render(); } };
+    const title=el('div','month-title', base.toLocaleDateString(undefined,{month:'long',year:'numeric'}));
+    const sel=el('select'); sel.innerHTML='<option value="">All habits</option>'+data.habits.filter(h=>!h.archived).map(h=>'<option value="'+h.id+'">'+esc(h.name)+'</option>').join(''); sel.value=monthHabit; sel.onchange=()=>{ monthHabit=sel.value; render(); };
+    hd.appendChild(prev); hd.appendChild(title); hd.appendChild(next); hd.appendChild(sel); wrap.appendChild(hd);
+    const grid=el('div','cal');
+    ['Mo','Tu','We','Th','Fr','Sa','Su'].forEach(l=>grid.appendChild(el('div','cal-dow',l)));
+    const firstDow=(new Date(year,mon,1).getDay()+6)%7;
+    for(let i=0;i<firstDow;i++) grid.appendChild(el('div','cal-cell empty'));
+    const daysInMonth=new Date(year,mon+1,0).getDate();
+    const hbt = monthHabit ? data.habits.find(h=>h.id===monthHabit) : null;
+    for(let dnum=1;dnum<=daysInMonth;dnum++){
+      const dstr=toISODate(new Date(year,mon,dnum)); const isFuture=dstr>today;
+      const cell=el('div','cal-cell'+(dstr===today?' caltoday':''));
+      cell.appendChild(el('div','cal-num',String(dnum)));
+      if(!isFuture){
+        if(hbt){
+          const sched=scheduledOn(hbt,dstr), done=isDoneOn(hbt,dstr);
+          if(done){ cell.style.background=safeColor(hbt.color,'var(--success)'); cell.classList.add('filled'); }
+          else if(sched){ cell.classList.add('sched'); }
+          cell.title=dstr+(noteFor(hbt.id,dstr)?(' — '+noteFor(hbt.id,dstr)):'');
+          cell.style.cursor='pointer'; cell.onclick=()=>{ if(hbt.track==='count') setLog(hbt,dstr, done?false:(hbt.goal||1)); else toggleCheck(hbt,dstr); persist(); render(); };
+        } else {
+          const act=data.habits.filter(h=>!h.archived); const due=act.filter(h=>dueOnStrict(h,dstr));
+          const doneC=due.filter(h=>isDoneOn(h,dstr)).length; const ratio=due.length?doneC/due.length:0;
+          if(ratio>0){ const fill=el('div','cal-fill'); fill.style.opacity=String(Math.round((0.25+0.75*ratio)*100)/100); cell.appendChild(fill); }
+          cell.title=dstr+' · '+doneC+'/'+due.length+' done';
+        }
+      }
+      grid.appendChild(cell);
+    }
+    wrap.appendChild(grid);
+    wrap.appendChild(el('div','small', hbt?'Tap a day to mark it done.':'Shade shows how many of that day’s habits you completed.'));
+    return wrap;
+  }
+
+  function celebrate(h,streak){
+    const ov=el('div','overlay'); ov.style.display='flex'; ov.style.zIndex='120';
+    const box=el('div','modal'); box.style.maxWidth='320px';
+    box.innerHTML='<div style="padding:22px 18px; text-align:center;"><div style="font-size:42px;">🎉</div><div style="font-size:18px; font-weight:700; margin:8px 0 4px;">'+streak+'-day streak!</div><div class="small">'+esc(h.name)+'</div></div>';
+    const foot=el('div','modal-foot'); foot.style.justifyContent='center'; const ok=el('button','primary','Nice!'); ok.onclick=()=>ov.remove(); foot.appendChild(ok);
+    box.appendChild(foot); ov.appendChild(box); document.body.appendChild(ov); ov.addEventListener('mousedown',e=>{ if(e.target===ov) ov.remove(); });
+  }
+
+  function openNote(hid,date){
+    const h=data.habits.find(x=>x.id===hid); if(!h) return;
+    const ov=el('div','overlay'); ov.style.display='flex'; ov.style.zIndex='110';
+    const box=el('div','modal'); box.style.maxWidth='420px';
+    const head=el('div','modal-head','<strong style="flex:1">'+esc(h.name)+' · '+date+'</strong>');
+    const close=el('button','iconbtn','✕'); close.onclick=()=>ov.remove(); head.appendChild(close);
+    const body=el('div','modal-body'); const ta=el('textarea'); ta.style.cssText='width:100%; min-height:90px; background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:8px;'; ta.value=noteFor(hid,date); ta.placeholder='How did it go?'; body.appendChild(ta);
+    const foot=el('div','modal-foot'); foot.style.justifyContent='flex-end'; const save=el('button','primary','Save');
+    save.onclick=()=>{ const v=ta.value.trim(); const m=data.notes[hid]=data.notes[hid]||{}; if(v) m[date]=v; else delete m[date]; if(Object.keys(m).length===0) delete data.notes[hid]; persist(); ov.remove(); render(); };
+    foot.appendChild(save); box.appendChild(head); box.appendChild(body); box.appendChild(foot); ov.appendChild(box); document.body.appendChild(ov);
+    setTimeout(()=>ta.focus(),0); ov.addEventListener('mousedown',e=>{ if(e.target===ov) ov.remove(); });
   }
 
   /* ---- habit editor ---- */
@@ -469,7 +568,7 @@ const App = (function () {
     if(!arch.length) body.appendChild(el('div','small','No archived habits.'));
     arch.forEach(h=>{
       const row=el('div','hrow');
-      const ic=el('div','hicon'); ic.textContent=h.icon||'•'; ic.style.color=h.color||'var(--fg)';
+      const ic=el('div','hicon'); ic.textContent=h.icon||'•'; ic.style.color=safeColor(h.color,'var(--fg)');
       row.appendChild(ic); row.appendChild(el('div','hname',esc(h.name)));
       const un=el('button','ghost','Unarchive'); un.onclick=()=>{ h.archived=false; persist(); ov.remove(); render(); };
       const del=el('button','danger','Delete'); del.onclick=()=>{ const tid=h.id; ov.remove();
