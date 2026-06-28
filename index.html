@@ -38,7 +38,8 @@
   .toolbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:8px 12px; border-bottom:1px solid var(--border); background:var(--panel); }
   .toolbar .grow { flex:1 1 auto; }
   .seg { display:inline-flex; border:1px solid var(--border); border-radius:6px; overflow:hidden; }
-  .seg button { border-radius:0; border:none; padding:5px 14px; }
+  .seg { flex-wrap:wrap; }
+  .seg button { border-radius:0; border:none; padding:5px 10px; }
   .seg button.active { background:var(--accent); color:var(--accent-fg); }
   .subhead { padding:6px 14px 0; color:var(--muted); font-size:13px; }
   .surface { flex:1 1 auto; overflow:auto; padding:14px; }
@@ -122,6 +123,21 @@
   .cal-num { font-size:11px; color:var(--muted); position:relative; z-index:1; }
   .cal-cell.filled .cal-num { color:#fff; }
   .cal-fill { position:absolute; inset:0; background:var(--success); border-radius:5px; }
+
+  .spark { display:flex; align-items:flex-end; gap:2px; height:30px; margin-top:8px; }
+  .spark span { flex:1; border-radius:2px 2px 0 0; min-height:2px; }
+  .cell.skip, .cal-cell.skip, .ycell.skip { background:repeating-linear-gradient(45deg, var(--panel), var(--panel) 3px, var(--border) 3px, var(--border) 4px); }
+  .year-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .year { display:grid; grid-template-rows:repeat(7,12px); grid-auto-flow:column; grid-auto-columns:12px; gap:3px; width:max-content; }
+  .ycell { width:12px; height:12px; border-radius:2px; background:var(--panel); border:1px solid var(--border); }
+  .ymonths { display:flex; gap:3px; margin-bottom:4px; font-size:10px; color:var(--muted-2); }
+  .journal .jday { margin:14px 0 2px; font-size:12px; color:var(--muted); font-weight:600; }
+  .journal .jitem { display:flex; gap:8px; padding:7px 0; border-top:1px solid var(--border); }
+  .journal .ji-ic { width:20px; text-align:center; flex:0 0 auto; }
+  .journal .ji-txt { flex:1; }
+  .journal .ji-name { font-size:12px; color:var(--muted); }
+  .restpill { font-size:12px; color:var(--muted); border:1px solid var(--border); border-radius:999px; padding:3px 10px; cursor:pointer; flex:0 0 auto; }
+  .restpill.on { color:var(--accent); border-color:var(--accent); }
 </style>
 </head>
 <body>
@@ -131,7 +147,9 @@
       <button data-view="today">Today</button>
       <button data-view="grid">Grid</button>
       <button data-view="month">Month</button>
+      <button data-view="year">Year</button>
       <button data-view="stats">Stats</button>
+      <button data-view="journal">Journal</button>
     </div>
     <span class="grow"></span>
     <button class="ghost" id="archBtn" style="display:none;">Archived</button>
@@ -308,7 +326,7 @@ const App = (function () {
       let prev=addDays(wk,-7); while(true){ if(countInWeek(h,prev)>=target){ streak++; prev=addDays(prev,-7); } else break; } return streak;
     }
     let streak=0; let cursor=today;
-    while(true){ if(scheduledOn(h,cursor)){ if(isDoneOn(h,cursor)) streak++; else if(cursor===today){ /* today pending */ } else break; }
+    while(true){ if(scheduledOn(h,cursor)){ if(isDoneOn(h,cursor)) streak++; else if(isSkipped(h,cursor)){ /* rest day, neutral */ } else if(cursor===today){ /* today pending */ } else break; }
       cursor=addDays(cursor,-1); if(cursor<'2000-01-01') break; }
     return streak;
   }
@@ -318,18 +336,25 @@ const App = (function () {
       let wk=startOfWeek(logDates.reduce((a,b)=>a<b?a:b)); const end=startOfWeek(today); let best=0,run=0;
       while(wk<=end){ if(countInWeek(h,wk)>=target){ run++; best=Math.max(best,run);} else run=0; wk=addDays(wk,7); } return best; }
     const start = h.createdAt ? h.createdAt.slice(0,10) : (logDates.length?logDates.reduce((a,b)=>a<b?a:b):today);
-    let best=0,run=0,d=start; while(d<=today){ if(scheduledOn(h,d)){ if(isDoneOn(h,d)){ run++; best=Math.max(best,run);} else run=0; } d=addDays(d,1); } return best;
+    let best=0,run=0,d=start; while(d<=today){ if(scheduledOn(h,d)){ if(isDoneOn(h,d)){ run++; best=Math.max(best,run);} else if(isSkipped(h,d)){ /* neutral */ } else run=0; } d=addDays(d,1); } return best;
   }
   function completionRate(h,days){ const today=todayStr(); let sched=0,done=0;
-    for(let i=0;i<days;i++){ const d=addDays(today,-i); if(scheduledOn(h,d)){ sched++; if(isDoneOn(h,d)) done++; } } return sched?Math.round(done/sched*100):0; }
+    for(let i=0;i<days;i++){ const d=addDays(today,-i); if(scheduledOn(h,d) && !isSkipped(h,d)){ sched++; if(isDoneOn(h,d)) done++; } } return sched?Math.round(done/sched*100):0; }
   function totalDone(h){ const m=data.log[h.id]||{}; return Object.keys(m).filter(k=>isDoneOn(h,k)).length; }
+  function isSkipped(h,iso){ return logVal(h,iso)==='skip'; }
+  function sumInRange(h,days){ const today=todayStr(); let s=0,n=0; for(let i=0;i<days;i++){ const v=logVal(h,addDays(today,-i)); if(typeof v==='number'){ s+=v; n++; } } return {sum:s,activeDays:n}; }
+  function monthTotal(h){ const ym=todayStr().slice(0,7); const m=data.log[h.id]||{}; let s=0; Object.keys(m).forEach(k=>{ if(k.slice(0,7)===ym && typeof m[k]==='number') s+=m[k]; }); return s; }
+  function sparkline(h,days){ const today=todayStr(); const vals=[]; for(let i=days-1;i>=0;i--){ const v=logVal(h,addDays(today,-i)); vals.push(typeof v==='number'?v:0); }
+    const max=Math.max(1,...vals); const wrap=el('div','spark'); wrap.title='Last '+days+' days';
+    vals.forEach(v=>{ const sp=el('span'); sp.style.height=Math.max(2,Math.round(v/max*30))+'px'; sp.style.background=v>0?safeColor(h.color,'var(--accent)'):'var(--border)'; wrap.appendChild(sp); });
+    return wrap; }
   // "due on a specific day" — excludes weekly-target habits (which aren't pinned to a day)
   function dueOnStrict(h,iso){ const s=h.schedule||{type:'daily'}; if(s.type==='weekly') return false; if(s.type==='days'){ const w=new Date(iso+'T00:00:00').getDay(); return (s.days||[]).includes(w); } return true; }
   function perfectDaysCount(days){ const today=todayStr(); const act=data.habits.filter(h=>!h.archived); let n=0;
     for(let i=0;i<days;i++){ const d=addDays(today,-i); const due=act.filter(h=>dueOnStrict(h,d)); if(due.length && due.every(h=>isDoneOn(h,d))) n++; } return n; }
   function moveHabit(hid,dir){ const i=data.habits.findIndex(h=>h.id===hid); const j=i+dir; if(i<0||j<0||j>=data.habits.length) return; const a=data.habits; const t=a[i]; a[i]=a[j]; a[j]=t; persist(); render(); }
   // streak at risk = scheduled today, not done yet, and an active streak that today would break
-  function atRisk(h){ const today=todayStr(); if((h.schedule||{}).type==='weekly') return false; if(!scheduledOn(h,today)) return false; if(isDoneOn(h,today)) return false; return currentStreak(h)>=2; }
+  function atRisk(h){ const today=todayStr(); if((h.schedule||{}).type==='weekly') return false; if(!scheduledOn(h,today)) return false; if(isSkipped(h,today)) return false; if(isDoneOn(h,today)) return false; return currentStreak(h)>=2; }
   function highestMilestone(streak){ let m=0; MILESTONES.forEach(x=>{ if(streak>=x) m=x; }); return m; }
   function noteFor(hid,iso){ return (data.notes[hid]||{})[iso]||''; }
 
@@ -346,7 +371,7 @@ const App = (function () {
     document.querySelectorAll('#viewSeg button').forEach(b=>b.classList.toggle('active', b.dataset.view===data.ui.view));
     const ub=$('#undoBtn'); if(ub){ ub.disabled=!undoStack.length; ub.style.opacity=undoStack.length?'1':'.4'; }
     const today=todayStr(); const act=data.habits.filter(h=>!h.archived);
-    const due=act.filter(h=>scheduledOn(h,today)); const done=due.filter(h=>isDoneOn(h,today));
+    const due=act.filter(h=>scheduledOn(h,today)&&!isSkipped(h,today)); const done=due.filter(h=>isDoneOn(h,today));
     let sh = fmtDate(today) + '  ·  ' + done.length + ' of ' + due.length + ' done today';
     if(due.length && done.length===due.length) sh += '  ·  🎉 perfect day';
     $('#subhead').textContent = sh;
@@ -356,6 +381,8 @@ const App = (function () {
     const s=$('#surface'); s.innerHTML='';
     if(data.ui.view==='grid') s.appendChild(renderGrid());
     else if(data.ui.view==='month') s.appendChild(renderMonth());
+    else if(data.ui.view==='year') s.appendChild(renderYear());
+    else if(data.ui.view==='journal') s.appendChild(renderJournal());
     else if(data.ui.view==='stats') s.appendChild(renderStats());
     else s.appendChild(renderToday());
   }
@@ -375,10 +402,12 @@ const App = (function () {
       const sb=el('span','streak'+(risky?' risk':''),'🔥 '+streak); sb.title=risky?'Do it today to keep your streak':'Current streak';
       row.appendChild(ic); row.appendChild(name); if(streak>0) row.appendChild(sb);
       const hasNote=!!noteFor(h.id,today);
-      const nb=el('button','iconbtn'); nb.textContent='📝'; nb.style.opacity=hasNote?'1':'.3'; nb.title=hasNote?"Edit today's note":'Add a note';
-      nb.onclick=(e)=>{ e.stopPropagation(); openNote(h.id,today); }; row.appendChild(nb);
+      const nb=el('button','iconbtn'); nb.textContent='📝'; nb.style.opacity=hasNote?'1':'.3'; nb.title=hasNote?"Edit today's note / rest":'Add a note / rest day';
+      nb.onclick=(e)=>{ e.stopPropagation(); openDay(h.id,today); }; row.appendChild(nb);
       const celebrateIf=(prev)=>{ const now=currentStreak(h); if(now>prev && MILESTONES.includes(now)) celebrate(h,now); };
-      if(h.track==='count'){
+      if(isSkipped(h,today)){
+        const rp=el('span','restpill on','💤 rest'); rp.title='Rest day — tap to change'; rp.onclick=(e)=>{ e.stopPropagation(); openDay(h.id,today); }; row.appendChild(rp);
+      } else if(h.track==='count'){
         const v=(typeof logVal(h,today)==='number')?logVal(h,today):0;
         const c=el('div','counter');
         const minus=el('button',null,'−'); minus.onclick=()=>{ incCount(h,today,-1); persist(); render(); };
@@ -392,7 +421,7 @@ const App = (function () {
       name.onclick=()=>openEditor(h.id);
       ic.onclick=()=>openEditor(h.id);
       wrap.appendChild(row);
-      if(h.track==='count'){ const v=(typeof logVal(h,today)==='number')?logVal(h,today):0; const pct=Math.min(100,Math.round(v/(h.goal||1)*100));
+      if(h.track==='count' && !isSkipped(h,today)){ const v=(typeof logVal(h,today)==='number')?logVal(h,today):0; const pct=Math.min(100,Math.round(v/(h.goal||1)*100));
         const pb=el('div','pbar','<span style="width:'+pct+'%; background:'+safeColor(h.color,'var(--accent)')+'"></span>'); wrap.appendChild(pb); }
     });
     return wrap;
@@ -410,7 +439,7 @@ const App = (function () {
       const lbl=el('div','glabel'); lbl.innerHTML='<span style="color:'+safeColor(h.color,'var(--fg)')+'">'+esc(h.icon||'•')+'</span> '+esc(h.name);
       lbl.style.cursor='pointer'; lbl.onclick=()=>openEditor(h.id); gv.appendChild(lbl);
       for(let i=DAYS-1;i>=0;i--){ const d=addDays(today,-i); const sched=scheduledOn(h,d); const done=isDoneOn(h,d);
-        const cell=el('div','cell'+(done?' done':'')+(d===today?' today':'')+(sched?'':' off'));
+        const cell=el('div','cell'+(done?' done':'')+(d===today?' today':'')+(sched?'':' off')+(isSkipped(h,d)?' skip':''));
         if(done) cell.style.background=safeColor(h.color,'var(--success)');
         cell.title=d+(noteFor(h.id,d)?(' — '+noteFor(h.id,d)):'');
         if(sched){ cell.onclick=()=>{ if(h.track==='count') setLog(h,d, done?false:(h.goal||1)); else toggleCheck(h,d); persist(); render(); }; }
@@ -434,6 +463,11 @@ const App = (function () {
       const metric=(n,l)=>'<div class="smetric"><div class="n">'+n+'</div><div class="l">'+l+'</div></div>';
       const m=el('div','smetrics'); m.innerHTML = metric(currentStreak(h),'Current streak')+metric(longestStreak(h),'Longest')+metric(completionRate(h,30)+'%','30-day')+metric(totalDone(h),'Total');
       card.appendChild(m);
+      if(h.track==='count'){
+        const r=sumInRange(h,30); const avg=r.activeDays?Math.round(r.sum/r.activeDays):0; const unit=h.unit?(' '+esc(h.unit)):'';
+        card.appendChild(el('div','small', monthTotal(h)+unit+' this month · avg '+avg+unit+'/active day'));
+        card.appendChild(sparkline(h,14));
+      }
       const wk=el('div','wk'); const lbl=['M','T','W','T','F','S','S']; const ws=startOfWeek(today);
       for(let i=0;i<7;i++){ const d=addDays(ws,i); const on=(d<=today)&&isDoneOn(h,d); const sp=el('span',on?'on':''); if(on) sp.style.background=safeColor(h.color,'var(--success)'); sp.title=d; wk.appendChild(sp); }
       card.appendChild(el('div','small','This week')); card.appendChild(wk);
@@ -469,6 +503,7 @@ const App = (function () {
         if(hbt){
           const sched=scheduledOn(hbt,dstr), done=isDoneOn(hbt,dstr);
           if(done){ cell.style.background=safeColor(hbt.color,'var(--success)'); cell.classList.add('filled'); }
+          else if(isSkipped(hbt,dstr)){ cell.classList.add('skip'); }
           else if(sched){ cell.classList.add('sched'); }
           cell.title=dstr+(noteFor(hbt.id,dstr)?(' — '+noteFor(hbt.id,dstr)):'');
           cell.style.cursor='pointer'; cell.onclick=()=>{ if(hbt.track==='count') setLog(hbt,dstr, done?false:(hbt.goal||1)); else toggleCheck(hbt,dstr); persist(); render(); };
@@ -486,6 +521,51 @@ const App = (function () {
     return wrap;
   }
 
+  /* ---- Year heatmap ---- */
+  function renderYear(){
+    const wrap=el('div'); const today=todayStr();
+    const hd=el('div','month-head'); hd.appendChild(el('div','month-title','Past year'));
+    const sel=el('select'); sel.innerHTML='<option value="">All habits</option>'+data.habits.filter(h=>!h.archived).map(h=>'<option value="'+h.id+'">'+esc(h.name)+'</option>').join(''); sel.value=monthHabit; sel.onchange=()=>{ monthHabit=sel.value; render(); };
+    hd.appendChild(sel); wrap.appendChild(hd);
+    const yw=el('div','year-wrap'); const yr=el('div','year');
+    const WEEKS=53; const start=startOfWeek(addDays(today,-7*(WEEKS-1)));
+    const hbt = monthHabit ? data.habits.find(h=>h.id===monthHabit) : null;
+    for(let i=0;i<WEEKS*7;i++){
+      const cur=addDays(start,i); const cell=el('div','ycell');
+      if(cur>today){ cell.style.visibility='hidden'; }
+      else if(hbt){
+        if(isDoneOn(hbt,cur)){ cell.style.background=safeColor(hbt.color,'var(--success)'); cell.style.borderColor='transparent'; }
+        else if(isSkipped(hbt,cur)){ cell.classList.add('skip'); }
+        cell.title=cur+(noteFor(hbt.id,cur)?(' — '+noteFor(hbt.id,cur)):'');
+      } else {
+        const act=data.habits.filter(h=>!h.archived); const due=act.filter(h=>dueOnStrict(h,cur)); const dc=due.filter(h=>isDoneOn(h,cur)).length; const ratio=due.length?dc/due.length:0;
+        if(ratio>0){ cell.style.background='var(--success)'; cell.style.opacity=String(Math.round((0.25+0.75*ratio)*100)/100); cell.style.borderColor='transparent'; }
+        cell.title=cur+' · '+dc+'/'+due.length;
+      }
+      yr.appendChild(cell);
+    }
+    yw.appendChild(yr); wrap.appendChild(yw);
+    wrap.appendChild(el('div','small', hbt?'Each square is a day over the past year.':'Shade shows how much of each day you completed, over the past year.'));
+    return wrap;
+  }
+
+  /* ---- Notes / reflection journal ---- */
+  function renderJournal(){
+    const wrap=el('div','journal'); const entries=[];
+    Object.keys(data.notes||{}).forEach(hid=>{ const m=data.notes[hid]||{}; Object.keys(m).forEach(date=>entries.push({date,hid,text:m[date]})); });
+    if(!entries.length){ wrap.appendChild(el('div','empty','No notes yet. Tap the 📝 on a habit in Today to add a reflection.')); return wrap; }
+    entries.sort((a,b)=>b.date.localeCompare(a.date));
+    let lastDate=null;
+    entries.forEach(e=>{ const h=data.habits.find(x=>x.id===e.hid);
+      if(e.date!==lastDate){ wrap.appendChild(el('div','jday', esc(fmtDate(e.date)))); lastDate=e.date; }
+      const it=el('div','jitem');
+      it.appendChild(el('div','ji-ic', esc(h?(h.icon||'•'):'•')));
+      const tx=el('div','ji-txt'); tx.appendChild(el('div','ji-name', h?esc(h.name):'(deleted habit)')); const p=el('div'); p.textContent=e.text; tx.appendChild(p);
+      it.appendChild(tx); wrap.appendChild(it);
+    });
+    return wrap;
+  }
+
   function celebrate(h,streak){
     const ov=el('div','overlay'); ov.style.display='flex'; ov.style.zIndex='120';
     const box=el('div','modal'); box.style.maxWidth='320px';
@@ -494,15 +574,23 @@ const App = (function () {
     box.appendChild(foot); ov.appendChild(box); document.body.appendChild(ov); ov.addEventListener('mousedown',e=>{ if(e.target===ov) ov.remove(); });
   }
 
-  function openNote(hid,date){
+  function openDay(hid,date){
     const h=data.habits.find(x=>x.id===hid); if(!h) return;
     const ov=el('div','overlay'); ov.style.display='flex'; ov.style.zIndex='110';
     const box=el('div','modal'); box.style.maxWidth='420px';
     const head=el('div','modal-head','<strong style="flex:1">'+esc(h.name)+' · '+date+'</strong>');
     const close=el('button','iconbtn','✕'); close.onclick=()=>ov.remove(); head.appendChild(close);
-    const body=el('div','modal-body'); const ta=el('textarea'); ta.style.cssText='width:100%; min-height:90px; background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:8px;'; ta.value=noteFor(hid,date); ta.placeholder='How did it go?'; body.appendChild(ta);
+    const body=el('div','modal-body');
+    const restLbl=el('label','small'); restLbl.style.cssText='display:flex; align-items:center; gap:6px; cursor:pointer;';
+    const rest=el('input'); rest.type='checkbox'; rest.style.cssText='width:auto; margin:0;'; rest.checked=isSkipped(h,date);
+    restLbl.appendChild(rest); restLbl.appendChild(document.createTextNode(' Rest / skip day (won’t break your streak)')); body.appendChild(restLbl);
+    const ta=el('textarea'); ta.style.cssText='width:100%; min-height:90px; background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:8px;'; ta.value=noteFor(hid,date); ta.placeholder='How did it go?'; body.appendChild(ta);
     const foot=el('div','modal-foot'); foot.style.justifyContent='flex-end'; const save=el('button','primary','Save');
-    save.onclick=()=>{ const v=ta.value.trim(); const m=data.notes[hid]=data.notes[hid]||{}; if(v) m[date]=v; else delete m[date]; if(Object.keys(m).length===0) delete data.notes[hid]; persist(); ov.remove(); render(); };
+    save.onclick=()=>{
+      if(rest.checked) setLog(h,date,'skip'); else if(isSkipped(h,date)) setLog(h,date,false);
+      const v=ta.value.trim(); const m=data.notes[hid]=data.notes[hid]||{}; if(v) m[date]=v; else delete m[date]; if(Object.keys(m).length===0) delete data.notes[hid];
+      persist(); ov.remove(); render();
+    };
     foot.appendChild(save); box.appendChild(head); box.appendChild(body); box.appendChild(foot); ov.appendChild(box); document.body.appendChild(ov);
     setTimeout(()=>ta.focus(),0); ov.addEventListener('mousedown',e=>{ if(e.target===ov) ov.remove(); });
   }
