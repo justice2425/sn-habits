@@ -62,15 +62,14 @@
   .addhabit { margin-top:14px; }
 
   /* Grid */
-  .grid-wrap { overflow-x:auto; }
-  table.grid { border-collapse:collapse; }
-  table.grid th, table.grid td { padding:2px; text-align:center; }
-  table.grid th.dow { font-weight:400; color:var(--muted-2); font-size:10px; width:20px; }
-  table.grid td.label { text-align:left; white-space:nowrap; padding-right:10px; }
-  .cell { width:18px; height:18px; border-radius:4px; background:var(--panel); display:inline-block; cursor:pointer; border:1px solid transparent; }
-  .cell.done { background:var(--success); }
-  .cell.today { border-color:var(--accent); }
-  .cell.off { opacity:.4; cursor:default; }
+  .grid-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .gridv { display:grid; gap:4px; align-items:center; width:max-content; }
+  .gridv .gdow { text-align:center; font-size:10px; color:var(--muted-2); }
+  .gridv .glabel { white-space:nowrap; padding-right:8px; font-size:13px; position:sticky; left:0; background:var(--bg); z-index:1; }
+  .cell { width:18px; height:18px; border-radius:4px; background:var(--panel); border:1px solid var(--border); display:block; cursor:pointer; }
+  .cell.done { border-color:transparent; }
+  .cell.today { outline:2px solid var(--accent); outline-offset:-2px; }
+  .cell.off { opacity:.35; cursor:default; }
 
   /* Stats */
   .stat-cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:10px; }
@@ -403,25 +402,22 @@ const App = (function () {
     const wrap=el('div','grid-wrap'); const DAYS=21; const today=todayStr();
     const act=data.habits.filter(h=>!h.archived);
     if(!act.length){ wrap.appendChild(el('div','empty','No habits yet.')); return wrap; }
-    const table=el('table','grid');
-    const head=el('tr'); head.appendChild(el('th','label',''));
+    const gv=el('div','gridv'); gv.style.gridTemplateColumns='max-content repeat('+DAYS+', 18px)';
+    gv.appendChild(el('div','glabel gdow',''));
     const DOW=['M','T','W','T','F','S','S'];
-    for(let i=DAYS-1;i>=0;i--){ const d=addDays(today,-i); const dow=(new Date(d+'T00:00:00').getDay()+6)%7; head.appendChild(el('th','dow',DOW[dow])); }
-    table.appendChild(head);
+    for(let i=DAYS-1;i>=0;i--){ const d=addDays(today,-i); const dow=(new Date(d+'T00:00:00').getDay()+6)%7; gv.appendChild(el('div','gdow',DOW[dow])); }
     act.forEach(h=>{
-      const tr=el('tr'); const lbl=el('td','label'); lbl.innerHTML='<span style="color:'+safeColor(h.color,'var(--fg)')+'">'+esc(h.icon||'•')+'</span> '+esc(h.name);
-      lbl.style.cursor='pointer'; lbl.onclick=()=>openEditor(h.id); tr.appendChild(lbl);
-      for(let i=DAYS-1;i>=0;i--){ const d=addDays(today,-i); const td=el('td');
-        const sched=scheduledOn(h,d); const done=isDoneOn(h,d);
-        const cell=el('span','cell'+(done?' done':'')+(d===today?' today':'')+(sched?'':' off'));
+      const lbl=el('div','glabel'); lbl.innerHTML='<span style="color:'+safeColor(h.color,'var(--fg)')+'">'+esc(h.icon||'•')+'</span> '+esc(h.name);
+      lbl.style.cursor='pointer'; lbl.onclick=()=>openEditor(h.id); gv.appendChild(lbl);
+      for(let i=DAYS-1;i>=0;i--){ const d=addDays(today,-i); const sched=scheduledOn(h,d); const done=isDoneOn(h,d);
+        const cell=el('div','cell'+(done?' done':'')+(d===today?' today':'')+(sched?'':' off'));
         if(done) cell.style.background=safeColor(h.color,'var(--success)');
         cell.title=d+(noteFor(h.id,d)?(' — '+noteFor(h.id,d)):'');
         if(sched){ cell.onclick=()=>{ if(h.track==='count') setLog(h,d, done?false:(h.goal||1)); else toggleCheck(h,d); persist(); render(); }; }
-        td.appendChild(cell); tr.appendChild(td); }
-      table.appendChild(tr);
+        gv.appendChild(cell); }
     });
-    wrap.appendChild(table);
-    wrap.appendChild(el('div','small','Tap any day to mark it done — handy for backfilling. Outlined square is today.'));
+    wrap.appendChild(gv);
+    wrap.appendChild(el('div','small','Tap any day to mark it done — handy for backfilling. Outlined square is today. Swipe to see earlier days.'));
     return wrap;
   }
 
