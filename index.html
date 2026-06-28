@@ -131,6 +131,7 @@
   .year { display:grid; grid-template-rows:repeat(7,12px); grid-auto-flow:column; grid-auto-columns:12px; gap:3px; width:max-content; }
   .ycell { width:12px; height:12px; border-radius:2px; background:var(--panel); border:1px solid var(--border); }
   .ymonths { display:flex; gap:3px; margin-bottom:4px; font-size:10px; color:var(--muted-2); }
+  .journal .jhead { font-size:16px; font-weight:600; margin-bottom:4px; }
   .journal .jday { margin:14px 0 2px; font-size:12px; color:var(--muted); font-weight:600; }
   .journal .jitem { display:flex; gap:8px; padding:7px 0; border-top:1px solid var(--border); }
   .journal .ji-ic { width:20px; text-align:center; flex:0 0 auto; }
@@ -551,9 +552,11 @@ const App = (function () {
 
   /* ---- Notes / reflection journal ---- */
   function renderJournal(){
-    const wrap=el('div','journal'); const entries=[];
+    const wrap=el('div','journal');
+    wrap.appendChild(el('div','jhead','Reflections'));
+    const entries=[];
     Object.keys(data.notes||{}).forEach(hid=>{ const m=data.notes[hid]||{}; Object.keys(m).forEach(date=>entries.push({date,hid,text:m[date]})); });
-    if(!entries.length){ wrap.appendChild(el('div','empty','No notes yet. Tap the 📝 on a habit in Today to add a reflection.')); return wrap; }
+    if(!entries.length){ wrap.appendChild(el('div','empty','No reflections yet. In the Today view, tap the 📝 next to a habit, write a note, and Save — it will appear here grouped by date.')); return wrap; }
     entries.sort((a,b)=>b.date.localeCompare(a.date));
     let lastDate=null;
     entries.forEach(e=>{ const h=data.habits.find(x=>x.id===e.hid);
