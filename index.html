@@ -137,6 +137,30 @@
   .journal .ji-ic { width:20px; text-align:center; flex:0 0 auto; }
   .journal .ji-txt { flex:1; }
   .journal .ji-name { font-size:12px; color:var(--muted); }
+  .journal .ji-edit { flex:0 0 auto; opacity:.35; font-size:13px; align-self:center; }
+  .journal .jitem:hover .ji-edit { opacity:.9; }
+  .insights { max-width:640px; }
+  .ins-note { font-size:12px; color:var(--muted); margin-bottom:10px; }
+  .ins-card { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:12px 14px; margin-bottom:12px; }
+  .ins-card h4 { margin:0 0 8px; font-size:14px; }
+  .ins-card .small { margin:4px 0; }
+  .ins-big { font-size:26px; font-weight:700; margin:2px 0; }
+  .ins-trend { font-size:13px; font-weight:600; margin-left:6px; }
+  .ins-trend.up { color:var(--success); } .ins-trend.down { color:var(--danger); } .ins-trend.steady { color:var(--muted); }
+  .ins-row { display:flex; align-items:center; gap:8px; margin:5px 0; }
+  .ins-rlbl { width:16px; font-size:12px; color:var(--muted); text-align:center; }
+  .ins-hname { width:150px; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ins-bar { flex:1; height:8px; border-radius:999px; background:var(--bg); border:1px solid var(--border); overflow:hidden; }
+  .ins-bar > span { display:block; height:100%; background:var(--accent); }
+  .ins-rval { width:58px; text-align:right; font-size:12px; color:var(--muted); }
+  .ins-weeks { display:flex; gap:8px; align-items:flex-end; }
+  .ins-week { flex:1; text-align:center; }
+  .ins-vbar { height:70px; display:flex; align-items:flex-end; background:var(--bg); border:1px solid var(--border); border-radius:5px; overflow:hidden; }
+  .ins-vbar > span { display:block; width:100%; background:var(--accent); }
+  .ins-wlbl { font-size:11px; margin-top:3px; } .ins-wlbl2 { font-size:10px; color:var(--muted); }
+  .ins-cloud { display:flex; flex-wrap:wrap; gap:4px 10px; align-items:baseline; margin-top:4px; }
+  .ins-word { line-height:1.2; }
+  .ins-caveat { color:var(--muted-2,var(--muted)); font-style:italic; font-size:11px; }
   .restpill { font-size:12px; color:var(--muted); border:1px solid var(--border); border-radius:999px; padding:3px 10px; cursor:pointer; flex:0 0 auto; }
   .restpill.on { color:var(--accent); border-color:var(--accent); }
 </style>
@@ -150,6 +174,7 @@
       <button data-view="month">Month</button>
       <button data-view="year">Year</button>
       <button data-view="stats">Stats</button>
+      <button data-view="insights">Insights</button>
       <button data-view="journal">Journal</button>
     </div>
     <span class="grow"></span>
@@ -359,6 +384,63 @@ const App = (function () {
   function highestMilestone(streak){ let m=0; MILESTONES.forEach(x=>{ if(streak>=x) m=x; }); return m; }
   function noteFor(hid,iso){ return (data.notes[hid]||{})[iso]||''; }
 
+  /* ---- Insights: quantitative trends (all local, no AI) ---- */
+  function activeHabits(){ return data.habits.filter(h=>!h.archived); }
+  function firstLogDate(){ let min=null; Object.keys(data.log||{}).forEach(hid=>Object.keys(data.log[hid]||{}).forEach(d=>{ if(d!=='skip' && (!min||d<min)) min=d; })); return min; }
+  function historyDays(){ const f=firstLogDate(); if(!f) return 0; return Math.round((new Date(todayStr()+'T00:00:00')-new Date(f+'T00:00:00'))/86400000)+1; }
+  // combined completion over `len` days ending `offset` days before today (offset 0 = last `len` days incl today)
+  function combinedRate(offset,len){ const today=todayStr(); let sched=0,done=0; const act=activeHabits();
+    for(let i=0;i<len;i++){ const d=addDays(today,-(offset+i)); act.forEach(h=>{ if(scheduledOn(h,d)&&!isSkipped(h,d)){ sched++; if(isDoneOn(h,d)) done++; } }); }
+    return { sched, done, rate: sched?Math.round(done/sched*100):null }; }
+  function weeklyRates(nWeeks){ const arr=[]; for(let w=0;w<nWeeks;w++) arr.push(combinedRate(w*7,7)); return arr.reverse(); }
+  function dowRates(nDays){ const today=todayStr(); const b=Array.from({length:7},()=>({sched:0,done:0})); const act=activeHabits();
+    for(let i=0;i<nDays;i++){ const d=addDays(today,-i); const dow=(new Date(d+'T00:00:00').getDay()+6)%7;
+      act.forEach(h=>{ if(scheduledOn(h,d)&&!isSkipped(h,d)){ b[dow].sched++; if(isDoneOn(h,d)) b[dow].done++; } }); }
+    return b.map(x=>({sched:x.sched,done:x.done,rate:x.sched?Math.round(x.done/x.sched*100):null})); }
+  function rateBack(h,fromOffset,len){ const today=todayStr(); let s=0,dn=0; for(let i=0;i<len;i++){ const d=addDays(today,-(fromOffset+i)); if(scheduledOn(h,d)&&!isSkipped(h,d)){ s++; if(isDoneOn(h,d)) dn++; } } return s?Math.round(dn/s*100):null; }
+  function habitMomentum(h){ const recent=rateBack(h,0,14), prior=rateBack(h,14,14); let dir='steady';
+    if(recent!=null&&prior!=null){ const diff=recent-prior; dir=diff>=10?'up':diff<=-10?'down':'steady'; } else if(recent!=null&&prior==null){ dir='new'; }
+    return { recent, prior, dir }; }
+  function coOccur(a,b,nDays){ const today=todayStr(); let aDone=0,both=0; for(let i=0;i<nDays;i++){ const d=addDays(today,-i); if(scheduledOn(a,d)&&scheduledOn(b,d)&&isDoneOn(a,d)){ aDone++; if(isDoneOn(b,d)) both++; } } return { aDone, both, pct: aDone?Math.round(both/aDone*100):null }; }
+  function bestPairing(nDays){ const act=activeHabits(); let best=null; for(let i=0;i<act.length;i++) for(let j=0;j<act.length;j++){ if(i===j) continue; const c=coOccur(act[i],act[j],nDays); if(c.aDone>=4 && c.pct!=null && (!best||c.pct>best.pct)) best={a:act[i],b:act[j],pct:c.pct,aDone:c.aDone}; } return best; }
+  function skipCount(nDays){ const today=todayStr(); let n=0; const act=activeHabits(); for(let i=0;i<nDays;i++){ const d=addDays(today,-i); act.forEach(h=>{ if(isSkipped(h,d)) n++; }); } return n; }
+
+  /* ---- Insights: journal text stats (word-counting, not AI understanding) ---- */
+  const STOPWORDS=new Set('the a an and or but of to in on for with at by from is are was were be been being it its this that these those i you he she we they them me my your his her our their as so if then than too very just really not no yes do did done doing have has had will would can could should about out up down off over more most some any all also into what when where which who how why got get went day today day tomorrow yesterday felt feel feeling still even much many because went'.split(/\s+/));
+  function journalEntries(){ const out=[]; Object.keys(data.notes||{}).forEach(hid=>{ const m=data.notes[hid]||{}; Object.keys(m).forEach(date=>{ if((m[date]||'').trim()) out.push({hid,date,text:m[date]}); }); }); return out; }
+  function tokenize(t){ return String(t||'').toLowerCase().replace(/[^a-z0-9'\s]/g,' ').split(/\s+/).map(w=>w.replace(/^'+|'+$/g,'')).filter(Boolean); }
+  const POSW='good great love loved enjoy enjoyed happy strong proud calm focused focus progress win won better best easy easier motivated energized grateful clear rested rest fun excited consistent improving'.split(' ');
+  const NEGW='bad tired hard tough struggle struggled skip skipped missed miss sore pain painful stressed anxious frustrated fail failed slow weak difficult exhausted overwhelmed sick lazy behind unmotivated distracted'.split(' ');
+  function journalStats(){ const entries=journalEntries(); if(!entries.length) return null;
+    const dates=[...new Set(entries.map(e=>e.date))].sort();
+    let words=0; const freq={}; let pos=0,neg=0; const perHabit={};
+    entries.forEach(e=>{ const toks=tokenize(e.text); words+=toks.length; perHabit[e.hid]=(perHabit[e.hid]||0)+1;
+      toks.forEach(w=>{ if(POSW.includes(w)) pos++; if(NEGW.includes(w)) neg++; if(w.length>=3 && !STOPWORDS.has(w) && !/^\d+$/.test(w)) freq[w]=(freq[w]||0)+1; }); });
+    const top=Object.entries(freq).sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0])).slice(0,15).map(x=>({w:x[0],n:x[1]}));
+    let topHabit=null,topN=0; Object.keys(perHabit).forEach(hid=>{ if(perHabit[hid]>topN){ topN=perHabit[hid]; topHabit=hid; } });
+    return { count:entries.length, days:dates.length, first:dates[0], last:dates[dates.length-1], words, avg:Math.round(words/entries.length), top, pos, neg, topHabit, topN }; }
+
+  /* ---- Optional: package data + journal as plain text to paste into an AI ---- */
+  function buildAIExport(){ const act=activeHabits(); const today=todayStr(); const L=[];
+    L.push('You are helping me reflect on my habits and journal. Please read the data below and give me: (1) honest observations about my trends, (2) any patterns linking my habits to how I described my days, and (3) two or three concrete, kind suggestions. Be rigorous and specific; do not flatter me.');
+    L.push(''); L.push('=== HABIT DATA (as of '+today+') ===');
+    const r14=combinedRate(0,14), p14=combinedRate(14,14);
+    L.push('Overall completion of scheduled habits, last 14 days: '+(r14.rate==null?'n/a':r14.rate+'%')+(p14.rate!=null?(' (prior 14 days: '+p14.rate+'%)'):''));
+    const dw=dowRates(56); const names=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    L.push('Completion by weekday (last 8 weeks): '+dw.map((x,i)=>names[i]+' '+(x.rate==null?'-':x.rate+'%')).join(', '));
+    L.push(''); L.push('Per habit:');
+    act.forEach(h=>{ const m=habitMomentum(h); L.push('- '+h.name+': current streak '+currentStreak(h)+', longest '+longestStreak(h)+', 30-day '+completionRate(h,30)+'%, recent 14d '+(m.recent==null?'-':m.recent+'% ('+m.dir+')')+(h.track==='count'?(', count habit measured in '+(h.unit||'units')):'')); });
+    const pair=bestPairing(60); if(pair){ L.push(''); L.push('Co-occurrence: on days I complete '+pair.a.name+', I also complete '+pair.b.name+' '+pair.pct+'% of the time (association, not necessarily cause).'); }
+    L.push('Rest/skip days used in the last 30: '+skipCount(30)+'.');
+    L.push('Perfect days in the last 30: '+perfectDaysCount(30)+'.');
+    L.push(''); L.push('=== JOURNAL ENTRIES ===');
+    const entries=journalEntries().sort((a,b)=>a.date.localeCompare(b.date));
+    if(!entries.length) L.push('(none yet)');
+    entries.forEach(e=>{ const h=data.habits.find(x=>x.id===e.hid); L.push('['+e.date+'] '+(h?h.name:'?')+': '+e.text); });
+    return L.join('\n'); }
+  function copyText(text,ok){ let done=false; if(window.navigator&&navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(text).then(()=>{done=true;ok&&ok(true);}).catch(fallback); } else fallback();
+    function fallback(){ try{ const ta=document.createElement('textarea'); ta.value=text; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); }catch(e){} if(!done) ok&&ok(false); } }
+
   /* ---- rendering ---- */
   const $=s=>document.querySelector(s);
   const el=(tag,cls,html)=>{ const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
@@ -385,6 +467,7 @@ const App = (function () {
     else if(data.ui.view==='year') s.appendChild(renderYear());
     else if(data.ui.view==='journal') s.appendChild(renderJournal());
     else if(data.ui.view==='stats') s.appendChild(renderStats());
+    else if(data.ui.view==='insights') s.appendChild(renderInsights());
     else s.appendChild(renderToday());
   }
 
@@ -403,7 +486,9 @@ const App = (function () {
       const sb=el('span','streak'+(risky?' risk':''),'🔥 '+streak); sb.title=risky?'Do it today to keep your streak':'Current streak';
       row.appendChild(ic); row.appendChild(name); if(streak>0) row.appendChild(sb);
       const hasNote=!!noteFor(h.id,today);
-      const nb=el('button','iconbtn'); nb.textContent='📝'; nb.style.opacity=hasNote?'1':'.3'; nb.title=hasNote?"Edit today's note / rest":'Add a note / rest day';
+      const nb=el('button','ghost'); nb.textContent = hasNote ? '📝 Note' : '📝';
+      nb.title = hasNote ? "Edit today's note / rest day" : 'Add a note or mark a rest day';
+      nb.style.cssText = 'flex:0 0 auto; padding:3px 8px;' + (hasNote ? ' border-color:var(--accent); color:var(--accent);' : '');
       nb.onclick=(e)=>{ e.stopPropagation(); openDay(h.id,today); }; row.appendChild(nb);
       const celebrateIf=(prev)=>{ const now=currentStreak(h); if(now>prev && MILESTONES.includes(now)) celebrate(h,now); };
       if(isSkipped(h,today)){
@@ -477,6 +562,82 @@ const App = (function () {
     });
     outer.appendChild(wrap);
     return outer;
+  }
+
+  /* ---- Insights view ---- */
+  function ibar(pct,color){ const b=el('div','ins-bar'); const f=el('span'); f.style.width=(pct==null?0:pct)+'%'; if(color) f.style.background=color; b.appendChild(f); return b; }
+  function renderInsights(){
+    const wrap=el('div','insights'); const act=activeHabits();
+    if(!act.length){ wrap.appendChild(el('div','empty','No habits yet.')); return wrap; }
+    wrap.appendChild(el('div','ins-note','These are patterns in your numbers and words — a starting point, not a verdict. The less history you have, the noisier they are.'));
+    const hist=historyDays();
+    if(hist<21) wrap.appendChild(el('div','riskbanner','Only '+hist+' day'+(hist===1?'':'s')+' of history so far — trends get much more reliable after a few weeks of logging.'));
+
+    // A) overall momentum
+    const r14=combinedRate(0,14), p14=combinedRate(14,14);
+    const sec1=el('div','ins-card'); sec1.appendChild(el('h4',null,'Overall momentum'));
+    if(r14.rate==null){ sec1.appendChild(el('div','small','Not enough scheduled days in the last two weeks yet.')); }
+    else { let arrow='→ holding steady', cls='steady';
+      if(p14.rate!=null){ const diff=r14.rate-p14.rate; if(diff>=5){arrow='↑ up '+diff+' pts';cls='up';} else if(diff<=-5){arrow='↓ down '+Math.abs(diff)+' pts';cls='down';} }
+      sec1.appendChild(el('div','ins-big', r14.rate+'% <span class="ins-trend '+cls+'">'+arrow+'</span>'));
+      sec1.appendChild(el('div','small','Completion of scheduled habits, last 14 days'+(p14.rate!=null?(' (prior 14 days: '+p14.rate+'%)'):'')+'.')); }
+    wrap.appendChild(sec1);
+
+    // B) weekly trend
+    const wk=weeklyRates(6); const haveWk=wk.filter(x=>x.rate!=null).length;
+    if(haveWk>=2){ const s=el('div','ins-card'); s.appendChild(el('h4',null,'Weekly completion (last 6 weeks)'));
+      const row=el('div','ins-weeks'); wk.forEach((x,i)=>{ const col=el('div','ins-week'); const bar=el('div','ins-vbar'); const f=el('span'); f.style.height=Math.max(3,(x.rate||0))+'%'; bar.appendChild(f); col.appendChild(bar); col.appendChild(el('div','ins-wlbl', x.rate==null?'–':x.rate+'%')); col.appendChild(el('div','ins-wlbl2', i===wk.length-1?'now':('-'+(wk.length-1-i)+'w'))); row.appendChild(col); }); s.appendChild(row); wrap.appendChild(s); }
+
+    // C) day-of-week
+    const dw=dowRates(56); const haveDw=dw.filter(x=>x.rate!=null).length;
+    if(haveDw>=4){ const s=el('div','ins-card'); s.appendChild(el('h4',null,'Best & worst days')); const names=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+      let bi=-1,wi=-1; dw.forEach((x,i)=>{ if(x.rate==null) return; if(bi<0||x.rate>dw[bi].rate) bi=i; if(wi<0||x.rate<dw[wi].rate) wi=i; });
+      if(bi>=0&&wi>=0&&bi!==wi) s.appendChild(el('div','small','Strongest on <strong>'+names[bi]+'</strong> ('+dw[bi].rate+'%), weakest on <strong>'+names[wi]+'</strong> ('+dw[wi].rate+'%).'));
+      const lab=['M','T','W','T','F','S','S']; dw.forEach((x,i)=>{ const row=el('div','ins-row'); row.appendChild(el('div','ins-rlbl',lab[i])); const b=ibar(x.rate,'var(--accent)'); if(i===bi) b.firstChild.style.background='var(--success)'; if(i===wi) b.firstChild.style.background='var(--warning)'; row.appendChild(b); row.appendChild(el('div','ins-rval', x.rate==null?'–':x.rate+'%')); s.appendChild(row); }); wrap.appendChild(s); }
+
+    // D) per-habit momentum
+    const s4=el('div','ins-card'); s4.appendChild(el('h4',null,'Per-habit momentum (14d vs prior 14d)'));
+    act.forEach(h=>{ const m=habitMomentum(h); const row=el('div','ins-row');
+      const tag={up:'↑',down:'↓',steady:'→',new:'•'}[m.dir]; const col={up:'var(--success)',down:'var(--danger)',steady:'var(--muted)',new:'var(--muted)'}[m.dir];
+      row.appendChild(el('div','ins-hname', '<span style="color:'+safeColor(h.color,'var(--fg)')+'">'+esc(h.icon||'•')+'</span> '+esc(h.name)));
+      const b=ibar(m.recent,safeColor(h.color,'var(--accent)')); row.appendChild(b);
+      row.appendChild(el('div','ins-rval','<span style="color:'+col+'">'+tag+'</span> '+(m.recent==null?'–':m.recent+'%'))); s4.appendChild(row); });
+    wrap.appendChild(s4);
+
+    // E) pairing + rest days
+    const pair=bestPairing(60); const rest=skipCount(30);
+    const s5=el('div','ins-card'); s5.appendChild(el('h4',null,'Patterns'));
+    if(pair) s5.appendChild(el('div','small','On days you complete <strong>'+esc(pair.a.name)+'</strong>, you also complete <strong>'+esc(pair.b.name)+'</strong> '+pair.pct+'% of the time. <span class="ins-caveat">(association, not cause)</span>'));
+    s5.appendChild(el('div','small','Rest / skip days used in the last 30: <strong>'+rest+'</strong>.'));
+    s5.appendChild(el('div','small','Perfect days (last 30): <strong>'+perfectDaysCount(30)+'</strong>.'));
+    wrap.appendChild(s5);
+
+    // F) journal text stats
+    const js=journalStats();
+    const s6=el('div','ins-card'); s6.appendChild(el('h4',null,'Journal patterns'));
+    s6.appendChild(el('div','ins-caveat','Word counting, not comprehension — an AI (paste your notes into Claude) can actually read for themes.'));
+    if(!js){ s6.appendChild(el('div','small','No reflections yet. Add notes in the Today view and they’ll be analyzed here.')); }
+    else {
+      const th = js.topHabit? (data.habits.find(x=>x.id===js.topHabit)||{}).name : null;
+      s6.appendChild(el('div','small', js.count+' entries across '+js.days+' day'+(js.days===1?'':'s')+' · avg '+js.avg+' words'+(th?(' · most reflected: '+esc(th)):'')+'.'));
+      if(js.top.length){ s6.appendChild(el('div','small','Most-used words')); const cloud=el('div','ins-cloud');
+        const max=js.top[0].n; js.top.forEach(t=>{ const sp=el('span','ins-word'); sp.textContent=t.w; sp.title=t.n+'×'; sp.style.fontSize=(0.85+1.1*(t.n/max)).toFixed(2)+'em'; sp.style.opacity=(0.55+0.45*(t.n/max)).toFixed(2); cloud.appendChild(sp); }); s6.appendChild(cloud); }
+      const tot=js.pos+js.neg;
+      if(tot>0){ const p=Math.round(js.pos/tot*100); s6.appendChild(el('div','small','Rough tone tally: '+js.pos+' positive vs '+js.neg+' cautionary words ('+p+'% positive). <span class="ins-caveat">Crude — “not good” counts as positive. Read it as a nudge, not a score.</span>')); }
+    }
+    wrap.appendChild(s6);
+
+    // G) optional export for AI
+    const s7=el('div','ins-card'); s7.appendChild(el('h4',null,'Export for AI (optional)'));
+    s7.appendChild(el('div','small','For a real read of your journal themes, copy this summary and paste it into an AI like Claude. <strong>Nothing leaves this note until you paste it somewhere yourself</strong> — and only if you choose to. Includes your habit stats and your journal text.'));
+    const row=el('div'); row.style.cssText='display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:6px;';
+    const bCopy=el('button','primary','Copy summary'); const bPrev=el('button','ghost','Preview'); const msg=el('span','small');
+    const pv=el('textarea'); pv.readOnly=true; pv.style.cssText='width:100%; min-height:180px; margin-top:8px; display:none; background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:8px; font-family:ui-monospace,Menlo,monospace; font-size:12px;';
+    bCopy.onclick=()=>{ copyText(buildAIExport(), (okd)=>{ msg.textContent=okd?'Copied to clipboard ✓':'Select the preview text and copy manually'; if(!okd){ pv.style.display=''; pv.value=buildAIExport(); pv.focus(); pv.select(); } setTimeout(()=>msg.textContent='',3000); }); };
+    bPrev.onclick=()=>{ if(pv.style.display==='none'){ pv.value=buildAIExport(); pv.style.display=''; bPrev.textContent='Hide preview'; } else { pv.style.display='none'; bPrev.textContent='Preview'; } };
+    row.appendChild(bCopy); row.appendChild(bPrev); row.appendChild(msg); s7.appendChild(row); s7.appendChild(pv);
+    wrap.appendChild(s7);
+    return wrap;
   }
 
   /* ---- Month calendar ---- */
@@ -557,6 +718,7 @@ const App = (function () {
     const entries=[];
     Object.keys(data.notes||{}).forEach(hid=>{ const m=data.notes[hid]||{}; Object.keys(m).forEach(date=>entries.push({date,hid,text:m[date]})); });
     if(!entries.length){ wrap.appendChild(el('div','empty','No reflections yet. In the Today view, tap the 📝 next to a habit, write a note, and Save — it will appear here grouped by date.')); return wrap; }
+    wrap.appendChild(el('div','small','Tap any entry to edit it.'));
     entries.sort((a,b)=>b.date.localeCompare(a.date));
     let lastDate=null;
     entries.forEach(e=>{ const h=data.habits.find(x=>x.id===e.hid);
@@ -564,7 +726,9 @@ const App = (function () {
       const it=el('div','jitem');
       it.appendChild(el('div','ji-ic', esc(h?(h.icon||'•'):'•')));
       const tx=el('div','ji-txt'); tx.appendChild(el('div','ji-name', h?esc(h.name):'(deleted habit)')); const p=el('div'); p.textContent=e.text; tx.appendChild(p);
-      it.appendChild(tx); wrap.appendChild(it);
+      it.appendChild(tx);
+      if(h){ it.appendChild(el('div','ji-edit','✏️')); it.style.cursor='pointer'; it.title='Edit this entry'; it.onclick=()=>openDay(e.hid, e.date); }
+      wrap.appendChild(it);
     });
     return wrap;
   }
@@ -676,7 +840,8 @@ const App = (function () {
     cancel.onclick=()=>ov.remove(); ov.addEventListener('mousedown',e=>{ if(e.target===ov) ov.remove(); }); yes.onclick=()=>{ ov.remove(); onYes(); };
   }
 
-  return { start(){ wire(); SNBridge.init({ debounceSave:250, onNote:(text)=>{ standalone=false; load(text); }, onStandalone:()=>{ standalone=true; load(''); } }); } };
+  return { start(){ wire(); SNBridge.init({ debounceSave:250, onNote:(text)=>{ standalone=false; load(text); }, onStandalone:()=>{ standalone=true; load(''); } }); },
+    _test:{ combinedRate, weeklyRates, dowRates, habitMomentum, coOccur, bestPairing, skipCount, journalStats, historyDays, buildAIExport, addDays, todayStr, _set:(d)=>{data=d;} } };
 })();
 
 document.addEventListener('DOMContentLoaded', App.start);
