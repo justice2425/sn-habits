@@ -361,7 +361,11 @@ const App = (function () {
     if((h.schedule||{}).type==='weekly'){ if(!logDates.length) return 0; const target=(h.schedule.target)||1;
       let wk=startOfWeek(logDates.reduce((a,b)=>a<b?a:b)); const end=startOfWeek(today); let best=0,run=0;
       while(wk<=end){ if(countInWeek(h,wk)>=target){ run++; best=Math.max(best,run);} else run=0; wk=addDays(wk,7); } return best; }
-    const start = h.createdAt ? h.createdAt.slice(0,10) : (logDates.length?logDates.reduce((a,b)=>a<b?a:b):today);
+    // Start from the earliest day that actually has history (a backfilled day can be
+    // earlier than createdAt), so streaks that began before the habit was created still count.
+    const logMin = logDates.length ? logDates.reduce((a,b)=>a<b?a:b) : today;
+    const created = h.createdAt ? h.createdAt.slice(0,10) : logMin;
+    const start = logMin < created ? logMin : created;
     let best=0,run=0,d=start; while(d<=today){ if(scheduledOn(h,d)){ if(isDoneOn(h,d)){ run++; best=Math.max(best,run);} else if(isSkipped(h,d)){ /* neutral */ } else run=0; } d=addDays(d,1); } return best;
   }
   function completionRate(h,days){ const today=todayStr(); let sched=0,done=0;
@@ -485,6 +489,8 @@ const App = (function () {
       const streak=currentStreak(h); const risky=atRisk(h);
       const sb=el('span','streak'+(risky?' risk':''),'🔥 '+streak); sb.title=risky?'Do it today to keep your streak':'Current streak';
       row.appendChild(ic); row.appendChild(name); if(streak>0) row.appendChild(sb);
+      const eb=el('button','ghost','✎'); eb.title='Edit / rename / delete this habit'; eb.style.cssText='flex:0 0 auto; padding:3px 8px;';
+      eb.onclick=(e)=>{ e.stopPropagation(); openEditor(h.id); }; row.appendChild(eb);
       const hasNote=!!noteFor(h.id,today);
       const nb=el('button','ghost'); nb.textContent = hasNote ? '📝 Note' : '📝';
       nb.title = hasNote ? "Edit today's note / rest day" : 'Add a note or mark a rest day';
@@ -841,7 +847,7 @@ const App = (function () {
   }
 
   return { start(){ wire(); SNBridge.init({ debounceSave:250, onNote:(text)=>{ standalone=false; load(text); }, onStandalone:()=>{ standalone=true; load(''); } }); },
-    _test:{ combinedRate, weeklyRates, dowRates, habitMomentum, coOccur, bestPairing, skipCount, journalStats, historyDays, buildAIExport, addDays, todayStr, _set:(d)=>{data=d;} } };
+    _test:{ combinedRate, weeklyRates, dowRates, habitMomentum, coOccur, bestPairing, skipCount, journalStats, historyDays, buildAIExport, currentStreak, longestStreak, completionRate, addDays, todayStr, _set:(d)=>{data=d;} } };
 })();
 
 document.addEventListener('DOMContentLoaded', App.start);
