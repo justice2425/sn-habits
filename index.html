@@ -45,7 +45,7 @@
   .surface { flex:1 1 auto; overflow:auto; padding:14px; }
 
   /* Today */
-  .today { max-width:640px; margin:0 auto; }
+  .todayview { max-width:640px; margin:0 auto; }
   .hrow { display:flex; align-items:center; gap:12px; padding:12px 0; border-top:1px solid var(--border); }
   .hrow:first-child { border-top:none; }
   .hicon { font-size:20px; width:24px; text-align:center; flex:0 0 auto; }
@@ -70,7 +70,7 @@
   .tp-sub { font-size:12px; color:var(--muted); margin-top:2px; }
 
   /* Today: 7-day momentum strip */
-  .mstrip { display:flex; gap:4px; margin:6px 0 0 36px; }
+  .mstrip { display:flex; gap:4px; margin:8px 0 14px 36px; }
   .mdot { width:13px; height:13px; border-radius:3px; background:var(--panel); border:1px solid var(--border); }
   .mdot.on { border-color:transparent; }
   .mdot.off { opacity:.3; }
@@ -78,8 +78,16 @@
   .mdot.today { outline:1px solid var(--accent); outline-offset:1px; }
   .hmain { display:flex; align-items:center; gap:12px; flex:1 1 auto; min-width:0; cursor:pointer; border-radius:6px; margin:-4px; padding:4px; }
   .hmain:hover { background:var(--panel-2); }
-  .hdone { flex:0 0 auto; color:var(--success); font-weight:700; font-size:15px; }
   .hrow.done .hname { color:var(--muted); }
+  /* big, bright check-off button */
+  .bigcheck { flex:0 0 auto; width:34px; height:34px; padding:0; border-radius:50%; border:2.5px solid var(--muted-2);
+    background:transparent; cursor:pointer; display:inline-flex; align-items:center; justify-content:center;
+    transition:transform .12s ease, background .12s ease, border-color .12s ease; }
+  .bigcheck:hover { transform:scale(1.1); }
+  .bigcheck:active { transform:scale(.9); }
+  .bigcheck.done { color:#fff; animation:pop .22s ease; }
+  .bigcheck.done::after { content:"✓"; font-size:19px; font-weight:800; line-height:1; }
+  @keyframes pop { 0%{ transform:scale(.6); } 55%{ transform:scale(1.18); } 100%{ transform:scale(1); } }
 
   /* Calendar: zoom toggle */
   .calzoom { display:inline-flex; border:1px solid var(--border); border-radius:6px; overflow:hidden; margin-bottom:14px; }
@@ -526,7 +534,7 @@ const App = (function () {
     return strip;
   }
   function renderToday(){
-    const wrap=el('div','today'); const today=todayStr();
+    const wrap=el('div','todayview'); const today=todayStr();
     const act=data.habits.filter(h=>!h.archived);
     if(!act.length){ wrap.appendChild(el('div','empty','No habits yet. Use “+ Habit” to add one.')); return wrap; }
     const dueToday=act.filter(h=>scheduledOn(h,today)&&!isSkipped(h,today));
@@ -547,7 +555,7 @@ const App = (function () {
       const eb=el('button','ghost','✎'); eb.title='Edit / rename / delete this habit'; eb.style.cssText='flex:0 0 auto; padding:3px 8px;';
       eb.onclick=(e)=>{ e.stopPropagation(); openEditor(h.id); }; row.appendChild(eb);
       const hasNote=!!noteFor(h.id,today);
-      const nb=el('button','ghost'); nb.textContent = hasNote ? '📝 Note' : '📝';
+      const nb=el('button','ghost', hasNote ? '● Note' : 'Note');
       nb.title = hasNote ? "Edit today's note / rest day" : 'Add a note or mark a rest day';
       nb.style.cssText = 'flex:0 0 auto; padding:3px 8px;' + (hasNote ? ' border-color:var(--accent); color:var(--accent);' : '');
       nb.onclick=(e)=>{ e.stopPropagation(); openDay(h.id,today); }; row.appendChild(nb);
@@ -567,9 +575,16 @@ const App = (function () {
         c.appendChild(minus); c.appendChild(val); c.appendChild(plus); row.appendChild(c);
       } else {
         const done=isDoneOn(h,today);
+        if(done) row.classList.add('done');
         main.title=(done?'Done — tap to undo':'Tap to mark done')+' · use ✎ to edit';
         main.onclick=()=>{ const prev=currentStreak(h); toggleCheck(h,today); persist(); render(); celebrateIf(prev); };
-        if(done){ row.classList.add('done'); main.appendChild(el('span','hdone','✓')); }
+        const chk=el('button','bigcheck'+(done?' done':''));
+        if(done){ const c=safeColor(h.color,'var(--success)'); chk.style.background=c; chk.style.borderColor=c; }
+        else { chk.style.borderColor=safeColor(h.color,'var(--muted-2)'); }
+        chk.setAttribute('aria-label', done?'Mark not done':'Mark done');
+        chk.title = done?'Done — tap to undo':'Tap to mark done';
+        chk.onclick=(e)=>{ e.stopPropagation(); const prev=currentStreak(h); toggleCheck(h,today); persist(); render(); celebrateIf(prev); };
+        row.appendChild(chk);
       }
       wrap.appendChild(row);
       wrap.appendChild(miniStrip(h));
