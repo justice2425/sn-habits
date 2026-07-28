@@ -62,6 +62,30 @@
   .pbar > span { display:block; height:100%; background:var(--accent); }
   .addhabit { margin-top:14px; }
 
+  /* Today: daily progress ring */
+  .todayprog { display:flex; align-items:center; gap:14px; padding:2px 4px 14px; margin-bottom:2px; border-bottom:1px solid var(--border); }
+  .tp-ring { flex:0 0 auto; line-height:0; }
+  .tp-frac { font-size:22px; font-weight:700; line-height:1.1; }
+  .tp-frac span { font-size:15px; color:var(--muted); font-weight:600; }
+  .tp-sub { font-size:12px; color:var(--muted); margin-top:2px; }
+
+  /* Today: 7-day momentum strip */
+  .mstrip { display:flex; gap:4px; margin:6px 0 0 36px; }
+  .mdot { width:13px; height:13px; border-radius:3px; background:var(--panel); border:1px solid var(--border); }
+  .mdot.on { border-color:transparent; }
+  .mdot.off { opacity:.3; }
+  .mdot.skip { background:repeating-linear-gradient(45deg,var(--panel),var(--panel) 2px,var(--border) 2px,var(--border) 3px); }
+  .mdot.today { outline:1px solid var(--accent); outline-offset:1px; }
+  .hmain { display:flex; align-items:center; gap:12px; flex:1 1 auto; min-width:0; cursor:pointer; border-radius:6px; margin:-4px; padding:4px; }
+  .hmain:hover { background:var(--panel-2); }
+  .hdone { flex:0 0 auto; color:var(--success); font-weight:700; font-size:15px; }
+  .hrow.done .hname { color:var(--muted); }
+
+  /* Calendar: zoom toggle */
+  .calzoom { display:inline-flex; border:1px solid var(--border); border-radius:6px; overflow:hidden; margin-bottom:14px; }
+  .calzoom-btn { border:none; border-radius:0; padding:5px 12px; }
+  .calzoom-btn.on { background:var(--accent); color:var(--accent-fg); }
+
   /* Grid */
   .grid-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }
   .gridv { display:grid; gap:4px; align-items:center; width:max-content; }
@@ -170,9 +194,7 @@
   <div class="toolbar">
     <div class="seg" id="viewSeg">
       <button data-view="today">Today</button>
-      <button data-view="grid">Grid</button>
-      <button data-view="month">Month</button>
-      <button data-view="year">Year</button>
+      <button data-view="calendar">Calendar</button>
       <button data-view="stats">Stats</button>
       <button data-view="insights">Insights</button>
       <button data-view="journal">Journal</button>
@@ -308,7 +330,7 @@ const App = (function () {
     const mk = (name,icon,color)=>({ id:id(), name, icon, color, schedule:{type:'daily'}, track:'check', goal:1, unit:'', archived:false, createdAt:new Date().toISOString() });
     return { schema:SCHEMA,
       habits:[ mk('Cycling','🚴',COLORS[0]), mk('Off-bike exercise','💪',COLORS[1]), mk('Reading','📖',COLORS[2]), mk('Writing','✍️',COLORS[3]) ],
-      log:{}, notes:{}, ui:{ view:'today' } };
+      log:{}, notes:{}, ui:{ view:'today', calZoom:'month' } };
   }
   function load(text){
     let parsed=null; if(text&&text.trim()){ try{parsed=JSON.parse(text);}catch(e){parsed=null;} }
@@ -317,6 +339,9 @@ const App = (function () {
     lastSerialized=JSON.stringify(data); undoStack.length=0; render();
   }
   function migrate(d){ d.schema=d.schema||1; d.habits=d.habits||[]; d.log=d.log||{}; d.notes=d.notes||{}; d.ui=d.ui||{view:'today'};
+    // Grid/Month/Year merged into one Calendar view with a zoom toggle
+    if(['grid','month','year'].includes(d.ui.view)){ d.ui.calZoom=d.ui.view; d.ui.view='calendar'; }
+    if(!d.ui.calZoom) d.ui.calZoom='month';
     d.habits.forEach(h=>{ h.schedule=h.schedule||{type:'daily'}; if(typeof h.archived==='undefined') h.archived=false; if(!h.track) h.track='check'; if(typeof h.goal==='undefined') h.goal=1; }); return d; }
   function saveOut(){ const t=JSON.stringify(data); lastSerialized=t; if(standalone){ try{localStorage.setItem('sn-habits-standalone',t);}catch(e){} return; } SNBridge.save(t, previewText()); }
   function persist(){ dirty=true; if(lastSerialized!==null){ const cur=JSON.stringify(data); if(cur!==lastSerialized){ undoStack.push(lastSerialized); if(undoStack.length>60) undoStack.shift(); } } saveOut(); }
@@ -455,6 +480,7 @@ const App = (function () {
 
   function render(){
     if(!data) return;
+    if(['grid','month','year'].includes(data.ui.view)){ data.ui.calZoom=data.ui.view; data.ui.view='calendar'; }
     document.querySelectorAll('#viewSeg button').forEach(b=>b.classList.toggle('active', b.dataset.view===data.ui.view));
     const ub=$('#undoBtn'); if(ub){ ub.disabled=!undoStack.length; ub.style.opacity=undoStack.length?'1':'.4'; }
     const today=todayStr(); const act=data.habits.filter(h=>!h.archived);
@@ -466,29 +492,58 @@ const App = (function () {
     if(ab){ if(arch.length){ ab.style.display=''; ab.textContent='Archived ('+arch.length+')'; } else ab.style.display='none'; }
     lastRenderDay = today;
     const s=$('#surface'); s.innerHTML='';
-    if(data.ui.view==='grid') s.appendChild(renderGrid());
-    else if(data.ui.view==='month') s.appendChild(renderMonth());
-    else if(data.ui.view==='year') s.appendChild(renderYear());
+    if(data.ui.view==='calendar') s.appendChild(renderCalendar());
     else if(data.ui.view==='journal') s.appendChild(renderJournal());
     else if(data.ui.view==='stats') s.appendChild(renderStats());
     else if(data.ui.view==='insights') s.appendChild(renderInsights());
     else s.appendChild(renderToday());
   }
 
+  // small SVG donut showing how many of today's due habits are done
+  function progressRing(done,due){
+    const R=26, C=2*Math.PI*R, pct=due?done/due:0, perfect=due>0&&done===due;
+    const col=perfect?'var(--success)':'var(--accent)';
+    const wrap=el('div','todayprog');
+    const ring=el('div','tp-ring');
+    ring.innerHTML='<svg width="62" height="62" viewBox="0 0 64 64" aria-hidden="true">'
+      +'<circle cx="32" cy="32" r="'+R+'" fill="none" stroke="var(--border)" stroke-width="7"/>'
+      +'<circle cx="32" cy="32" r="'+R+'" fill="none" stroke="'+col+'" stroke-width="7" stroke-linecap="round"'
+      +' stroke-dasharray="'+C.toFixed(1)+'" stroke-dashoffset="'+(C*(1-pct)).toFixed(1)+'" transform="rotate(-90 32 32)"/></svg>';
+    const lbl=el('div');
+    lbl.appendChild(el('div','tp-frac', done+'<span>/'+due+'</span>'));
+    lbl.appendChild(el('div','tp-sub', perfect?'🎉 perfect day — all done':'habits done today'));
+    wrap.appendChild(ring); wrap.appendChild(lbl);
+    return wrap;
+  }
+  // last 7 days at a glance, under each habit
+  function miniStrip(h){
+    const today=todayStr(); const strip=el('div','mstrip'); strip.title='Last 7 days';
+    for(let i=6;i>=0;i--){ const d=addDays(today,-i); const done=isDoneOn(h,d), sched=scheduledOn(h,d), skip=isSkipped(h,d);
+      const dot=el('span','mdot'+(done?' on':'')+(skip?' skip':'')+((!sched&&!done)?' off':'')+(d===today?' today':''));
+      if(done) dot.style.background=safeColor(h.color,'var(--success)');
+      dot.title=d+' · '+(done?'done':skip?'rest':sched?'missed':'not scheduled');
+      strip.appendChild(dot); }
+    return strip;
+  }
   function renderToday(){
     const wrap=el('div','today'); const today=todayStr();
     const act=data.habits.filter(h=>!h.archived);
     if(!act.length){ wrap.appendChild(el('div','empty','No habits yet. Use “+ Habit” to add one.')); return wrap; }
+    const dueToday=act.filter(h=>scheduledOn(h,today)&&!isSkipped(h,today));
+    const doneToday=dueToday.filter(h=>isDoneOn(h,today));
+    if(dueToday.length) wrap.appendChild(progressRing(doneToday.length,dueToday.length));
     const risk=act.filter(atRisk);
     if(risk.length){ wrap.appendChild(el('div','riskbanner','⚠️ '+risk.length+' streak'+(risk.length>1?'s':'')+' at risk today — do them to keep your run.')); }
     act.forEach(h=>{
       const row=el('div','hrow');
+      const main=el('div','hmain');
       const ic=el('div','hicon'); ic.textContent=h.icon||'•'; ic.style.color=safeColor(h.color,'var(--fg)');
       const scheduled=scheduledOn(h,today);
       const name=el('div','hname'); name.innerHTML=esc(h.name)+(scheduled?'':'<span class="rest">rest day</span>');
+      main.appendChild(ic); main.appendChild(name); row.appendChild(main);
       const streak=currentStreak(h); const risky=atRisk(h);
       const sb=el('span','streak'+(risky?' risk':''),'🔥 '+streak); sb.title=risky?'Do it today to keep your streak':'Current streak';
-      row.appendChild(ic); row.appendChild(name); if(streak>0) row.appendChild(sb);
+      if(streak>0) row.appendChild(sb);
       const eb=el('button','ghost','✎'); eb.title='Edit / rename / delete this habit'; eb.style.cssText='flex:0 0 auto; padding:3px 8px;';
       eb.onclick=(e)=>{ e.stopPropagation(); openEditor(h.id); }; row.appendChild(eb);
       const hasNote=!!noteFor(h.id,today);
@@ -497,25 +552,47 @@ const App = (function () {
       nb.style.cssText = 'flex:0 0 auto; padding:3px 8px;' + (hasNote ? ' border-color:var(--accent); color:var(--accent);' : '');
       nb.onclick=(e)=>{ e.stopPropagation(); openDay(h.id,today); }; row.appendChild(nb);
       const celebrateIf=(prev)=>{ const now=currentStreak(h); if(now>prev && MILESTONES.includes(now)) celebrate(h,now); };
+      // Tap the habit name/icon to log it — the biggest target does the most common action.
       if(isSkipped(h,today)){
+        main.title='Rest day — tap to change'; main.onclick=()=>openDay(h.id,today);
         const rp=el('span','restpill on','💤 rest'); rp.title='Rest day — tap to change'; rp.onclick=(e)=>{ e.stopPropagation(); openDay(h.id,today); }; row.appendChild(rp);
       } else if(h.track==='count'){
         const v=(typeof logVal(h,today)==='number')?logVal(h,today):0;
+        main.title='Tap to add one '+(h.unit||'')+' · use ✎ to edit';
+        main.onclick=()=>{ const prev=currentStreak(h); incCount(h,today,1); persist(); render(); celebrateIf(prev); };
         const c=el('div','counter');
-        const minus=el('button',null,'−'); minus.onclick=()=>{ incCount(h,today,-1); persist(); render(); };
+        const minus=el('button',null,'−'); minus.onclick=(e)=>{ e.stopPropagation(); incCount(h,today,-1); persist(); render(); };
         const val=el('span','val', v+' / '+(h.goal||1)+(h.unit?(' '+esc(h.unit)):''));
-        const plus=el('button',null,'+'); plus.onclick=()=>{ const prev=currentStreak(h); incCount(h,today,1); persist(); render(); celebrateIf(prev); };
+        const plus=el('button',null,'+'); plus.onclick=(e)=>{ e.stopPropagation(); const prev=currentStreak(h); incCount(h,today,1); persist(); render(); celebrateIf(prev); };
         c.appendChild(minus); c.appendChild(val); c.appendChild(plus); row.appendChild(c);
       } else {
-        const chk=el('div','check'+(isDoneOn(h,today)?' done':'')); chk.onclick=()=>{ const prev=currentStreak(h); toggleCheck(h,today); persist(); render(); celebrateIf(prev); };
-        row.appendChild(chk);
+        const done=isDoneOn(h,today);
+        main.title=(done?'Done — tap to undo':'Tap to mark done')+' · use ✎ to edit';
+        main.onclick=()=>{ const prev=currentStreak(h); toggleCheck(h,today); persist(); render(); celebrateIf(prev); };
+        if(done){ row.classList.add('done'); main.appendChild(el('span','hdone','✓')); }
       }
-      name.onclick=()=>openEditor(h.id);
-      ic.onclick=()=>openEditor(h.id);
       wrap.appendChild(row);
+      wrap.appendChild(miniStrip(h));
       if(h.track==='count' && !isSkipped(h,today)){ const v=(typeof logVal(h,today)==='number')?logVal(h,today):0; const pct=Math.min(100,Math.round(v/(h.goal||1)*100));
         const pb=el('div','pbar','<span style="width:'+pct+'%; background:'+safeColor(h.color,'var(--accent)')+'"></span>'); wrap.appendChild(pb); }
     });
+    return wrap;
+  }
+
+  /* ---- Calendar: one view, three zoom levels (was Grid / Month / Year) ---- */
+  function renderCalendar(){
+    const wrap=el('div');
+    const zoom=data.ui.calZoom||'month';
+    const bar=el('div','calzoom');
+    [['grid','3 weeks'],['month','Month'],['year','Year']].forEach(([k,label])=>{
+      const b=el('button','calzoom-btn'+(zoom===k?' on':''),label);
+      b.onclick=()=>{ data.ui.calZoom=k; saveOut(); render(); };
+      bar.appendChild(b);
+    });
+    wrap.appendChild(bar);
+    if(zoom==='grid') wrap.appendChild(renderGrid());
+    else if(zoom==='year') wrap.appendChild(renderYear());
+    else wrap.appendChild(renderMonth());
     return wrap;
   }
 
