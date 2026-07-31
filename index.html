@@ -2,6 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
+<!-- Security hardening: deny by default; allow only the app's own inline code/styles and
+     theme assets. connect-src 'none' blocks all network egress (the app makes none); the SN
+     bridge uses postMessage, which CSP does not restrict. No external scripts, eval, plugins,
+     <base> hijacking, or form submissions are permitted. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https: http: data:; img-src https: http: data: blob:; font-src https: http: data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
 <title>Habits</title>
 <style>
@@ -195,6 +200,39 @@
   .ins-caveat { color:var(--muted-2,var(--muted)); font-style:italic; font-size:11px; }
   .restpill { font-size:12px; color:var(--muted); border:1px solid var(--border); border-radius:999px; padding:3px 10px; cursor:pointer; flex:0 0 auto; }
   .restpill.on { color:var(--accent); border-color:var(--accent); }
+
+  /* ---- Gamification: level bar (Today) ---- */
+  .levelbar { display:flex; align-items:center; gap:12px; padding:10px 12px; margin-bottom:14px; position:relative;
+    background:var(--panel); border:1px solid var(--border); border-radius:12px; }
+  .lv-badge { flex:0 0 auto; width:38px; height:38px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    font-weight:700; font-size:16px; color:var(--accent-fg); background:var(--accent);
+    box-shadow:0 2px 8px color-mix(in srgb, var(--accent) 40%, transparent); }
+  .lv-main { flex:1 1 auto; min-width:0; }
+  .lv-top { display:flex; justify-content:space-between; align-items:baseline; gap:8px; margin-bottom:5px; }
+  .lv-title { font-weight:600; font-size:14px; }
+  .lv-xp { font-size:11px; color:var(--muted); font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .lv-track { height:8px; border-radius:999px; background:var(--bg); border:1px solid var(--border); overflow:hidden; }
+  .lv-track > span { display:block; height:100%; background:linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 55%, var(--success)));
+    border-radius:999px; transition:width .5s cubic-bezier(.22,1,.36,1); }
+  .lv-gain { position:absolute; right:14px; top:-10px; font-size:12px; font-weight:700; color:var(--success);
+    background:var(--bg); border:1px solid var(--success); border-radius:999px; padding:1px 8px; animation:xpfloat 1.6s ease forwards; pointer-events:none; }
+  @keyframes xpfloat { 0%{ opacity:0; transform:translateY(6px); } 15%{ opacity:1; transform:translateY(0); } 75%{ opacity:1; } 100%{ opacity:0; transform:translateY(-10px); } }
+
+  /* ---- Gamification: trophy case (Stats) ---- */
+  .trophies { margin-bottom:16px; }
+  .tr-head { font-size:13px; color:var(--muted); margin-bottom:10px; }
+  .tr-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(84px,1fr)); gap:8px; }
+  .tr-badge { text-align:center; padding:10px 6px; border-radius:10px; border:1px solid var(--border); background:var(--panel-2);
+    opacity:.5; filter:grayscale(1); }
+  .tr-badge.got { opacity:1; filter:none; border-color:color-mix(in srgb, var(--accent) 40%, var(--border)); background:var(--panel); }
+  .tr-ic { font-size:24px; line-height:1.1; }
+  .tr-name { font-size:10.5px; color:var(--muted); margin-top:4px; line-height:1.2; }
+  .tr-badge.got .tr-name { color:var(--fg); }
+
+  /* ---- Gamification: reward modal ---- */
+  .modal.reward { max-width:320px; }
+  .reward-badge { font-size:46px; line-height:1; animation:rewardpop .5s cubic-bezier(.18,1.4,.4,1) both; }
+  @keyframes rewardpop { 0%{ transform:scale(.3); opacity:0; } 60%{ transform:scale(1.15); opacity:1; } 100%{ transform:scale(1); } }
 </style>
 </head>
 <body>
@@ -312,7 +350,11 @@ const SNBridge = (function () {
   function activateThemes(urls){ if(activeThemes.sort().toString()===urls.slice().sort().toString()) return;
     Array.from(document.getElementsByClassName('sn-theme')).forEach(el=>el.remove());
     urls.forEach(url=>{ if(!url) return; const link=document.createElement('link'); link.className='sn-theme'; link.rel='stylesheet'; link.type='text/css'; link.href=url; document.head.appendChild(link); }); activeThemes=urls; }
-  function listen(){ const onMsg=(event)=>{ let data=event.data; if(typeof data==='string'){ try{data=JSON.parse(data);}catch(e){return;} } handle(data); };
+  function listen(){ const onMsg=(event)=>{
+      // Only accept messages from the embedding Standard Notes frame; reject stray cross-frame
+      // messages. Mobile may report a null source, which we allow (handle() still validates).
+      if(event.source && event.source!==window.parent) return;
+      let data=event.data; if(typeof data==='string'){ try{data=JSON.parse(data);}catch(e){return;} } handle(data); };
     window.addEventListener('message',onMsg,false); document.addEventListener('message',onMsg,false); }
   return { init(opts){ opts=opts||{}; saveDelay=typeof opts.debounceSave==='number'?opts.debounceSave:250; onNote=opts.onNote||null; listen();
       setTimeout(()=>{ if(!sessionKey){ standalone=true; if(opts.onStandalone) opts.onStandalone(); } },600); },
@@ -330,7 +372,7 @@ const App = (function () {
 
   let data=null, dirty=false, editingId=null, standalone=false;
   const undoStack=[]; let lastSerialized=null; let lastRenderDay=null;
-  let monthOffset=0, monthHabit='';
+  let monthOffset=0, monthHabit=''; let lastXPSeen=null;
 
   /* ---- persistence ---- */
   function id(){ return (window.crypto&&crypto.randomUUID)?crypto.randomUUID().slice(0,8):Math.random().toString(36).slice(2,10); }
@@ -338,19 +380,21 @@ const App = (function () {
     const mk = (name,icon,color)=>({ id:id(), name, icon, color, schedule:{type:'daily'}, track:'check', goal:1, unit:'', archived:false, createdAt:new Date().toISOString() });
     return { schema:SCHEMA,
       habits:[ mk('Cycling','🚴',COLORS[0]), mk('Off-bike exercise','💪',COLORS[1]), mk('Reading','📖',COLORS[2]), mk('Writing','✍️',COLORS[3]) ],
-      log:{}, notes:{}, ui:{ view:'today', calZoom:'month' } };
+      log:{}, notes:{}, ui:{ view:'today', calZoom:'month' }, gam:{} };
   }
   function load(text){
     let parsed=null; if(text&&text.trim()){ try{parsed=JSON.parse(text);}catch(e){parsed=null;} }
     if(!parsed||!Array.isArray(parsed.habits)) data=defaultData(); else data=migrate(parsed);
     if(standalone){ try{ const s=localStorage.getItem('sn-habits-standalone'); if(s) data=migrate(JSON.parse(s)); }catch(e){} }
+    ensureGamSeed();
     lastSerialized=JSON.stringify(data); undoStack.length=0; render();
   }
   function migrate(d){ d.schema=d.schema||1; d.habits=d.habits||[]; d.log=d.log||{}; d.notes=d.notes||{}; d.ui=d.ui||{view:'today'};
     // Grid/Month/Year merged into one Calendar view with a zoom toggle
     if(['grid','month','year'].includes(d.ui.view)){ d.ui.calZoom=d.ui.view; d.ui.view='calendar'; }
     if(!d.ui.calZoom) d.ui.calZoom='month';
-    d.habits.forEach(h=>{ h.schedule=h.schedule||{type:'daily'}; if(typeof h.archived==='undefined') h.archived=false; if(!h.track) h.track='check'; if(typeof h.goal==='undefined') h.goal=1; }); return d; }
+    d.habits.forEach(h=>{ h.schedule=h.schedule||{type:'daily'}; if(typeof h.archived==='undefined') h.archived=false; if(!h.track) h.track='check'; if(typeof h.goal==='undefined') h.goal=1; });
+    d.gam = d.gam || {}; return d; }
   function saveOut(){ const t=JSON.stringify(data); lastSerialized=t; if(standalone){ try{localStorage.setItem('sn-habits-standalone',t);}catch(e){} return; } SNBridge.save(t, previewText()); }
   function persist(){ dirty=true; if(lastSerialized!==null){ const cur=JSON.stringify(data); if(cur!==lastSerialized){ undoStack.push(lastSerialized); if(undoStack.length>60) undoStack.shift(); } } saveOut(); }
   function undo(){ if(!undoStack.length) return; data=migrate(JSON.parse(undoStack.pop())); saveOut(); render(); }
@@ -420,6 +464,85 @@ const App = (function () {
   function atRisk(h){ const today=todayStr(); if((h.schedule||{}).type==='weekly') return false; if(!scheduledOn(h,today)) return false; if(isSkipped(h,today)) return false; if(isDoneOn(h,today)) return false; return currentStreak(h)>=2; }
   function highestMilestone(streak){ let m=0; MILESTONES.forEach(x=>{ if(streak>=x) m=x; }); return m; }
   function noteFor(hid,iso){ return (data.notes[hid]||{})[iso]||''; }
+
+  /* ---- Gamification: XP + levels + achievements (all derived from the log, so undo-safe) ---- */
+  const XP_PER_DONE=10, XP_PER_PERFECT=25;
+  const LEVEL_TITLES=['Seedling','Sprout','Steady','Consistent','Committed','Disciplined','Habitual','Ingrained','Relentless','Unshakeable','Master'];
+  function totalCompletions(){ let n=0; data.habits.forEach(h=>{ n+=totalDone(h); }); return n; }
+  function perfectDaysAllTime(){ const f=firstLogDate(); if(!f) return 0; const today=todayStr(); const act=data.habits.filter(h=>!h.archived);
+    let n=0, d=f, guard=0; while(d<=today && guard++<20000){ const due=act.filter(h=>dueOnStrict(h,d)); if(due.length && due.every(h=>isDoneOn(h,d))) n++; d=addDays(d,1); } return n; }
+  function consecutivePerfectDays(){ const f=firstLogDate(); if(!f) return 0; const today=todayStr(); const act=data.habits.filter(h=>!h.archived);
+    let best=0, run=0, d=f, guard=0; while(d<=today && guard++<20000){ const due=act.filter(h=>dueOnStrict(h,d)); if(due.length && due.every(h=>isDoneOn(h,d))){ run++; best=Math.max(best,run); } else run=0; d=addDays(d,1); } return best; }
+  function longestStreakAny(){ let m=0; data.habits.forEach(h=>{ m=Math.max(m,longestStreak(h)); }); return m; }
+  function milestoneXP(){ let x=0; data.habits.forEach(h=>{ const ls=longestStreak(h); MILESTONES.forEach(m=>{ if(ls>=m) x+=m*2; }); }); return x; }
+  function totalXP(){ return totalCompletions()*XP_PER_DONE + perfectDaysAllTime()*XP_PER_PERFECT + milestoneXP(); }
+  function cumXP(L){ return 50*(L-1)*L; }   // XP to reach level L: L1=0, L2=100, L3=300, L4=600, L5=1000 …
+  function levelInfo(xp){ let L=1; while(cumXP(L+1)<=xp && L<999) L++; const cur=cumXP(L), nxt=cumXP(L+1);
+    return { level:L, into:xp-cur, need:nxt-cur, pct: (nxt-cur)?Math.min(100,Math.round((xp-cur)/(nxt-cur)*100)):100, title:LEVEL_TITLES[Math.min(L-1,LEVEL_TITLES.length-1)] }; }
+  function comebackDone(){ const today=todayStr(); const f=firstLogDate(); if(!f) return false;
+    return data.habits.some(h=>{ if((h.schedule||{}).type==='weekly') return false; let run=0, armed=false, d=f, guard=0;
+      while(d<=today && guard++<20000){ if(scheduledOn(h,d)){ if(isDoneOn(h,d)){ if(armed) return true; run++; } else if(isSkipped(h,d)){ /* neutral */ } else { if(run>=5) armed=true; run=0; } } d=addDays(d,1); } return false; }); }
+  const ACHIEVEMENTS=[
+    { id:'first',       icon:'👣', name:'First step',     desc:'Complete a habit for the first time', earned:()=>totalCompletions()>=1 },
+    { id:'ten',         icon:'🌿', name:'Taking root',    desc:'10 total completions',                earned:()=>totalCompletions()>=10 },
+    { id:'fifty',       icon:'🌳', name:'Growing strong', desc:'50 total completions',                earned:()=>totalCompletions()>=50 },
+    { id:'hundred',     icon:'💯', name:'Centurion',      desc:'100 total completions',               earned:()=>totalCompletions()>=100 },
+    { id:'fivehundred', icon:'🏔️', name:'Summit',         desc:'500 total completions',               earned:()=>totalCompletions()>=500 },
+    { id:'streak7',     icon:'🔥', name:'On fire',        desc:'Reach a 7-day streak',   quiet:true,  earned:()=>longestStreakAny()>=7 },
+    { id:'streak30',    icon:'🗓️', name:'Monthly master', desc:'Reach a 30-day streak',  quiet:true,  earned:()=>longestStreakAny()>=30 },
+    { id:'streak100',   icon:'💎', name:'Diamond streak', desc:'Reach a 100-day streak', quiet:true,  earned:()=>longestStreakAny()>=100 },
+    { id:'perfect1',    icon:'⭐', name:'Perfect day',    desc:'Complete every scheduled habit in a day', earned:()=>perfectDaysAllTime()>=1 },
+    { id:'perfect7',    icon:'🌟', name:'Perfect week',   desc:'7 perfect days in a row',             earned:()=>consecutivePerfectDays()>=7 },
+    { id:'comeback',    icon:'💪', name:'Comeback',       desc:'Bounce back after breaking a 5+ day streak', earned:()=>comebackDone() },
+    { id:'collector',   icon:'🧩', name:'Well-rounded',   desc:'Track 5 or more habits',              earned:()=>data.habits.filter(h=>!h.archived).length>=5 },
+    { id:'reflective',  icon:'📓', name:'Reflective',     desc:'Write 10 journal reflections',        earned:()=>journalEntries().length>=10 },
+    { id:'level5',      icon:'🏅', name:'Level 5',        desc:'Reach level 5',          quiet:true,  earned:()=>levelInfo(totalXP()).level>=5 },
+    { id:'level10',     icon:'👑', name:'Level 10',       desc:'Reach level 10',         quiet:true,  earned:()=>levelInfo(totalXP()).level>=10 },
+  ];
+  function earnedAchievements(){ return ACHIEVEMENTS.filter(a=>{ try{ return a.earned(); }catch(e){ return false; } }); }
+  function ensureGamSeed(){ data.gam=data.gam||{};
+    if(!data.gam.initialized){ data.gam.seenAch=earnedAchievements().map(a=>a.id); data.gam.seenLevel=levelInfo(totalXP()).level; data.gam.initialized=true; }
+    if(!Array.isArray(data.gam.seenAch)) data.gam.seenAch=[]; if(typeof data.gam.seenLevel!=='number') data.gam.seenLevel=1; }
+  function checkUnlocks(){
+    if(!data.gam || !data.gam.initialized) return;
+    const earned=earnedAchievements(); const earnedIds=earned.map(a=>a.id);
+    const newly=earned.filter(a=>!data.gam.seenAch.includes(a.id));
+    const lvl=levelInfo(totalXP()).level; const leveledUp=lvl>(data.gam.seenLevel||1);
+    if(!newly.length && !leveledUp) return;
+    data.gam.seenAch=earnedIds; data.gam.seenLevel=lvl; persist();
+    const queue=[];
+    if(leveledUp) queue.push({ type:'level', level:lvl, title:levelInfo(totalXP()).title });
+    newly.filter(a=>!a.quiet).forEach(a=>queue.push({ type:'ach', ach:a }));
+    showRewards(queue);
+  }
+  function showRewards(queue){ if(!queue.length) return; let i=0; const next=()=>{ if(i>=queue.length) return; rewardModal(queue[i++], next); }; next(); }
+  function rewardModal(it, done){
+    const ov=el('div','overlay'); ov.style.display='flex'; ov.style.zIndex='130';
+    const box=el('div','modal reward'); const icon= it.type==='level' ? '⬆️' : it.ach.icon;
+    const head= it.type==='level' ? ('Level '+it.level) : 'Achievement unlocked';
+    const sub = it.type==='level' ? esc(it.title) : (esc(it.ach.name)+' — '+esc(it.ach.desc));
+    box.innerHTML='<div style="padding:24px 20px; text-align:center;"><div class="reward-badge">'+icon+'</div>'
+      +'<div style="font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); margin-top:12px;">'+head+'</div>'
+      +'<div style="font-size:17px; font-weight:700; margin-top:4px;">'+sub+'</div></div>';
+    const foot=el('div','modal-foot'); foot.style.justifyContent='center';
+    const ok=el('button','primary', it.type==='level'?'Onward':'Nice!'); ok.onclick=()=>{ ov.remove(); done&&done(); };
+    foot.appendChild(ok); box.appendChild(foot); ov.appendChild(box); document.body.appendChild(ov);
+    ov.addEventListener('mousedown',e=>{ if(e.target===ov){ ov.remove(); done&&done(); } });
+  }
+  function levelBar(){ const info=levelInfo(totalXP()); const wrap=el('div','levelbar');
+    wrap.innerHTML='<div class="lv-badge">'+info.level+'</div>'
+      +'<div class="lv-main"><div class="lv-top"><span class="lv-title">Level '+info.level+' · '+esc(info.title)+'</span>'
+      +'<span class="lv-xp">'+info.into+' / '+info.need+' XP</span></div>'
+      +'<div class="lv-track"><span style="width:'+info.pct+'%"></span></div></div>';
+    return wrap; }
+  function trophyCase(){ const earned=new Set(earnedAchievements().map(a=>a.id)); const info=levelInfo(totalXP());
+    const sec=el('div','trophies');
+    sec.appendChild(el('div','tr-head','🏆 Level '+info.level+' · '+esc(info.title)+' · '+totalXP()+' XP · '+earned.size+'/'+ACHIEVEMENTS.length+' badges'));
+    const grid=el('div','tr-grid');
+    ACHIEVEMENTS.forEach(a=>{ const got=earned.has(a.id); const cell=el('div','tr-badge'+(got?' got':''));
+      cell.title=a.name+' — '+a.desc+(got?'':' (locked)');
+      cell.innerHTML='<div class="tr-ic">'+(got?a.icon:'🔒')+'</div><div class="tr-name">'+esc(a.name)+'</div>'; grid.appendChild(cell); });
+    sec.appendChild(grid); return sec; }
 
   /* ---- Insights: quantitative trends (all local, no AI) ---- */
   function activeHabits(){ return data.habits.filter(h=>!h.archived); }
@@ -505,6 +628,7 @@ const App = (function () {
     else if(data.ui.view==='stats') s.appendChild(renderStats());
     else if(data.ui.view==='insights') s.appendChild(renderInsights());
     else s.appendChild(renderToday());
+    checkUnlocks();
   }
 
   // small SVG donut showing how many of today's due habits are done
@@ -537,6 +661,9 @@ const App = (function () {
     const wrap=el('div','todayview'); const today=todayStr();
     const act=data.habits.filter(h=>!h.archived);
     if(!act.length){ wrap.appendChild(el('div','empty','No habits yet. Use “+ Habit” to add one.')); return wrap; }
+    // gamification: level + XP bar, with a brief +XP flash when it grows
+    const xpNow=totalXP(); const gain=(lastXPSeen!=null && xpNow>lastXPSeen) ? (xpNow-lastXPSeen) : 0; lastXPSeen=xpNow;
+    const lb=levelBar(); if(gain>0) lb.appendChild(el('span','lv-gain','+'+gain+' XP')); wrap.appendChild(lb);
     const dueToday=act.filter(h=>scheduledOn(h,today)&&!isSkipped(h,today));
     const doneToday=dueToday.filter(h=>isDoneOn(h,today));
     if(dueToday.length) wrap.appendChild(progressRing(doneToday.length,dueToday.length));
@@ -637,6 +764,7 @@ const App = (function () {
   function renderStats(){
     const outer=el('div'); const act=data.habits.filter(h=>!h.archived);
     if(!act.length){ outer.appendChild(el('div','empty','No habits yet.')); return outer; }
+    outer.appendChild(trophyCase());
     const banner=el('div','small'); banner.style.cssText='margin-bottom:10px;'; banner.textContent='🎉 Perfect days (last 30): '+perfectDaysCount(30)+'  ·  habits tracked: '+act.length;
     outer.appendChild(banner);
     const wrap=el('div','stat-cards');
@@ -939,7 +1067,8 @@ const App = (function () {
   }
 
   return { start(){ wire(); SNBridge.init({ debounceSave:250, onNote:(text)=>{ standalone=false; load(text); }, onStandalone:()=>{ standalone=true; load(''); } }); },
-    _test:{ combinedRate, weeklyRates, dowRates, habitMomentum, coOccur, bestPairing, skipCount, journalStats, historyDays, buildAIExport, currentStreak, longestStreak, completionRate, addDays, todayStr, _set:(d)=>{data=d;} } };
+    _test:{ combinedRate, weeklyRates, dowRates, habitMomentum, coOccur, bestPairing, skipCount, journalStats, historyDays, buildAIExport, currentStreak, longestStreak, completionRate, addDays, todayStr,
+      totalXP, levelInfo, totalCompletions, perfectDaysAllTime, earnedAchievements, ensureGamSeed, ACHIEVEMENTS, _set:(d)=>{data=d;} } };
 })();
 
 document.addEventListener('DOMContentLoaded', App.start);
