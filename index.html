@@ -233,6 +233,36 @@
   .modal.reward { max-width:320px; }
   .reward-badge { font-size:46px; line-height:1; animation:rewardpop .5s cubic-bezier(.18,1.4,.4,1) both; }
   @keyframes rewardpop { 0%{ transform:scale(.3); opacity:0; } 60%{ transform:scale(1.15); opacity:1; } 100%{ transform:scale(1); } }
+
+  /* ---- Workout session pill (Today) ---- */
+  .sesspill { font-size:12px; border:1px solid var(--border); border-radius:999px; padding:3px 10px; cursor:pointer; flex:0 0 auto; white-space:nowrap; }
+  .sesspill.on { color:var(--accent); border-color:var(--accent); }
+
+  /* ---- Training view ---- */
+  .training { max-width:640px; }
+  .tr-summary { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:14px 16px; margin-bottom:14px; }
+  .trs-big { font-size:28px; font-weight:700; line-height:1.1; }
+  .tr-weeks { display:flex; gap:8px; align-items:flex-end; margin:4px 0 14px; }
+  .tr-week { flex:1; text-align:center; }
+  .tr-vbar { height:70px; display:flex; align-items:flex-end; background:var(--bg); border:1px solid var(--border); border-radius:5px; overflow:hidden; }
+  .tr-vbar > span { display:block; width:100%; background:var(--accent); }
+  .tr-wlbl { font-size:11px; margin-top:3px; } .tr-wlbl2 { font-size:10px; color:var(--muted); }
+  .tr-hrow, .tr-srow { display:flex; align-items:center; gap:10px; padding:7px 0; border-top:1px solid var(--border); }
+  .tr-hic, .tr-sic { width:22px; text-align:center; flex:0 0 auto; }
+  .tr-hname, .tr-sname { flex:1; min-width:0; }
+  .tr-hval, .tr-sval { flex:0 0 auto; color:var(--muted); font-size:13px; text-align:right; }
+  .tr-sdate { color:var(--muted-2); font-size:12px; }
+
+  /* ---- Reflective journal ---- */
+  .jcompose { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:12px; margin-bottom:12px; }
+  .jprompt { font-size:13px; color:var(--muted); margin-bottom:8px; }
+  .jinput { width:100%; min-height:80px; background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:8px; }
+  .jactions { display:flex; align-items:center; gap:8px; margin-top:8px; }
+  .jmood { display:flex; gap:4px; }
+  .jmood-b { font-size:20px; border:1px solid transparent; background:transparent; border-radius:8px; padding:2px 5px; cursor:pointer; filter:grayscale(1); opacity:.7; }
+  .jmood-b:hover { opacity:1; }
+  .jmood-b.on { filter:none; opacity:1; border-color:var(--accent); background:var(--panel); }
+  .jsearch { width:100%; margin-bottom:10px; }
 </style>
 </head>
 <body>
@@ -241,6 +271,7 @@
     <div class="seg" id="viewSeg">
       <button data-view="today">Today</button>
       <button data-view="calendar">Calendar</button>
+      <button data-view="training">Training</button>
       <button data-view="stats">Stats</button>
       <button data-view="insights">Insights</button>
       <button data-view="journal">Journal</button>
@@ -294,6 +325,7 @@
           <select id="h_track">
             <option value="check">Check off</option>
             <option value="count">Count toward a goal</option>
+            <option value="session">Log a workout session</option>
           </select>
         </div>
         <div class="field" id="h_goalWrap" style="display:none;">
@@ -301,7 +333,7 @@
           <input id="h_goal" type="number" min="1" value="1" />
         </div>
         <div class="field" id="h_unitWrap" style="display:none;">
-          <label>Unit</label>
+          <label id="h_unitLabel">Unit</label>
           <input id="h_unit" type="text" placeholder="min, pages…" />
         </div>
       </div>
@@ -372,7 +404,9 @@ const App = (function () {
 
   let data=null, dirty=false, editingId=null, standalone=false;
   const undoStack=[]; let lastSerialized=null; let lastRenderDay=null;
-  let monthOffset=0, monthHabit=''; let lastXPSeen=null;
+  let monthOffset=0, monthHabit=''; let lastXPSeen=null; let journalQuery='';
+  const JPROMPTS=['What mattered most today?','What are you grateful for?','What did you learn today?','What drained or energized you?','One thing to do differently tomorrow.','Where did you make progress?'];
+  const MOODS=[{v:1,e:'😞'},{v:2,e:'😕'},{v:3,e:'😐'},{v:4,e:'🙂'},{v:5,e:'😄'}];
 
   /* ---- persistence ---- */
   function id(){ return (window.crypto&&crypto.randomUUID)?crypto.randomUUID().slice(0,8):Math.random().toString(36).slice(2,10); }
@@ -380,7 +414,7 @@ const App = (function () {
     const mk = (name,icon,color)=>({ id:id(), name, icon, color, schedule:{type:'daily'}, track:'check', goal:1, unit:'', archived:false, createdAt:new Date().toISOString() });
     return { schema:SCHEMA,
       habits:[ mk('Cycling','🚴',COLORS[0]), mk('Off-bike exercise','💪',COLORS[1]), mk('Reading','📖',COLORS[2]), mk('Writing','✍️',COLORS[3]) ],
-      log:{}, notes:{}, ui:{ view:'today', calZoom:'month' }, gam:{} };
+      log:{}, notes:{}, entries:[], ui:{ view:'today', calZoom:'month' }, gam:{} };
   }
   function load(text){
     let parsed=null; if(text&&text.trim()){ try{parsed=JSON.parse(text);}catch(e){parsed=null;} }
@@ -394,7 +428,7 @@ const App = (function () {
     if(['grid','month','year'].includes(d.ui.view)){ d.ui.calZoom=d.ui.view; d.ui.view='calendar'; }
     if(!d.ui.calZoom) d.ui.calZoom='month';
     d.habits.forEach(h=>{ h.schedule=h.schedule||{type:'daily'}; if(typeof h.archived==='undefined') h.archived=false; if(!h.track) h.track='check'; if(typeof h.goal==='undefined') h.goal=1; });
-    d.gam = d.gam || {}; return d; }
+    d.gam = d.gam || {}; if(!Array.isArray(d.entries)) d.entries=[]; return d; }
   function saveOut(){ const t=JSON.stringify(data); lastSerialized=t; if(standalone){ try{localStorage.setItem('sn-habits-standalone',t);}catch(e){} return; } SNBridge.save(t, previewText()); }
   function persist(){ dirty=true; if(lastSerialized!==null){ const cur=JSON.stringify(data); if(cur!==lastSerialized){ undoStack.push(lastSerialized); if(undoStack.length>60) undoStack.shift(); } } saveOut(); }
   function undo(){ if(!undoStack.length) return; data=migrate(JSON.parse(undoStack.pop())); saveOut(); render(); }
@@ -414,12 +448,21 @@ const App = (function () {
     if(s.type==='days'){ const d=new Date(iso+'T00:00:00').getDay(); return (s.days||[]).includes(d); }
     return true; } // daily and weekly: every day is a candidate
   function logVal(h,iso){ return (data.log[h.id]||{})[iso]; }
-  function isDoneOn(h,iso){ const v=logVal(h,iso); if(h.track==='count') return (typeof v==='number')&&v>=(h.goal||1); return v===true; }
+  function isDoneOn(h,iso){ const v=logVal(h,iso);
+    if(h.track==='count') return (typeof v==='number')&&v>=(h.goal||1);
+    if(h.track==='session') return !!(v && typeof v==='object' && ((+v.min>0)||(+v.dist>0)));
+    return v===true; }
+  function sessionOf(h,iso){ const v=logVal(h,iso); return (v && typeof v==='object' && !Array.isArray(v)) ? v : null; }
   function setLog(h,iso,value){ const m=data.log[h.id]=data.log[h.id]||{}; if(value===false||value==null||value===0) delete m[iso]; else m[iso]=value;
     if(Object.keys(m).length===0) delete data.log[h.id]; }
   function toggleCheck(h,iso){ setLog(h,iso, logVal(h,iso)===true?false:true); }
   function incCount(h,iso,delta){ const cur=(typeof logVal(h,iso)==='number')?logVal(h,iso):0; setLog(h,iso,Math.max(0,cur+delta)); }
   function countInWeek(h,weekStart){ let c=0; const today=todayStr(); for(let i=0;i<7;i++){ const d=addDays(weekStart,i); if(d<=today&&isDoneOn(h,d)) c++; } return c; }
+  /* ---- training sessions ---- */
+  function sessionHabits(){ return data.habits.filter(h=>!h.archived && h.track==='session'); }
+  function sessionAgg(h,days){ const today=todayStr(); let count=0,min=0,dist=0; for(let i=0;i<days;i++){ const s=sessionOf(h,addDays(today,-i)); if(s){ count++; min+=(+s.min||0); dist+=(+s.dist||0); } } return {count,min,dist}; }
+  function allSessions(days){ const today=todayStr(); const out=[]; sessionHabits().forEach(h=>{ for(let i=0;i<days;i++){ const d=addDays(today,-i); const s=sessionOf(h,d); if(s) out.push({habit:h,date:d,s}); } }); return out.sort((a,b)=>b.date.localeCompare(a.date)); }
+  function fmtDur(min){ min=Math.round(+min||0); const h=Math.floor(min/60), m=min%60; return h?(h+'h'+(m?(' '+m+'m'):'')):(m+'m'); }
 
   function currentStreak(h){
     const today=todayStr();
@@ -624,6 +667,7 @@ const App = (function () {
     lastRenderDay = today;
     const s=$('#surface'); s.innerHTML='';
     if(data.ui.view==='calendar') s.appendChild(renderCalendar());
+    else if(data.ui.view==='training') s.appendChild(renderTraining());
     else if(data.ui.view==='journal') s.appendChild(renderJournal());
     else if(data.ui.view==='stats') s.appendChild(renderStats());
     else if(data.ui.view==='insights') s.appendChild(renderInsights());
@@ -691,6 +735,14 @@ const App = (function () {
       if(isSkipped(h,today)){
         main.title='Rest day — tap to change'; main.onclick=()=>openDay(h.id,today);
         const rp=el('span','restpill on','💤 rest'); rp.title='Rest day — tap to change'; rp.onclick=(e)=>{ e.stopPropagation(); openDay(h.id,today); }; row.appendChild(rp);
+      } else if(h.track==='session'){
+        const s=sessionOf(h,today); const logged=isDoneOn(h,today);
+        if(logged) row.classList.add('done');
+        main.title = logged ? 'Session logged — tap to edit' : 'Tap to log a workout';
+        main.onclick=()=>{ const prev=currentStreak(h); openSession(h,today,prev); };
+        if(logged){ const parts=[]; if(+s.min) parts.push(fmtDur(s.min)); if(+s.dist) parts.push((+s.dist)+(h.unit?(' '+esc(h.unit)):'')); if(+s.rpe) parts.push('RPE '+(+s.rpe));
+          const sm=el('span','sesspill on', parts.join(' · ')||'logged'); sm.title='Tap to edit'; sm.onclick=(e)=>{ e.stopPropagation(); const prev=currentStreak(h); openSession(h,today,prev); }; row.appendChild(sm);
+        } else { const lb=el('button','ghost','＋ Log'); lb.style.cssText='flex:0 0 auto; padding:4px 10px; border-color:'+safeColor(h.color,'var(--accent)')+'; color:'+safeColor(h.color,'var(--accent)')+';'; lb.onclick=(e)=>{ e.stopPropagation(); const prev=currentStreak(h); openSession(h,today,prev); }; row.appendChild(lb); }
       } else if(h.track==='count'){
         const v=(typeof logVal(h,today)==='number')?logVal(h,today):0;
         main.title='Tap to add one '+(h.unit||'')+' · use ✎ to edit';
@@ -753,7 +805,7 @@ const App = (function () {
         const cell=el('div','cell'+(done?' done':'')+(d===today?' today':'')+(sched?'':' off')+(isSkipped(h,d)?' skip':''));
         if(done) cell.style.background=safeColor(h.color,'var(--success)');
         cell.title=d+(noteFor(h.id,d)?(' — '+noteFor(h.id,d)):'');
-        if(sched){ cell.onclick=()=>{ if(h.track==='count') setLog(h,d, done?false:(h.goal||1)); else toggleCheck(h,d); persist(); render(); }; }
+        if(sched){ cell.onclick=()=>{ if(h.track==='session'){ openSession(h,d,currentStreak(h)); return; } if(h.track==='count') setLog(h,d, done?false:(h.goal||1)); else toggleCheck(h,d); persist(); render(); }; }
         gv.appendChild(cell); }
     });
     wrap.appendChild(gv);
@@ -779,6 +831,9 @@ const App = (function () {
         const r=sumInRange(h,30); const avg=r.activeDays?Math.round(r.sum/r.activeDays):0; const unit=h.unit?(' '+esc(h.unit)):'';
         card.appendChild(el('div','small', monthTotal(h)+unit+' this month · avg '+avg+unit+'/active day'));
         card.appendChild(sparkline(h,14));
+      } else if(h.track==='session'){
+        const a=sessionAgg(h,30), u=h.unit?(' '+esc(h.unit)):'';
+        card.appendChild(el('div','small', a.count+' session'+(a.count===1?'':'s')+' · '+fmtDur(a.min)+(a.dist?(' · '+Math.round(a.dist)+u):'')+' in 30 days'));
       }
       const wk=el('div','wk'); const lbl=['M','T','W','T','F','S','S']; const ws=startOfWeek(today);
       for(let i=0;i<7;i++){ const d=addDays(ws,i); const on=(d<=today)&&isDoneOn(h,d); const sp=el('span',on?'on':''); if(on) sp.style.background=safeColor(h.color,'var(--success)'); sp.title=d; wk.appendChild(sp); }
@@ -894,7 +949,7 @@ const App = (function () {
           else if(isSkipped(hbt,dstr)){ cell.classList.add('skip'); }
           else if(sched){ cell.classList.add('sched'); }
           cell.title=dstr+(noteFor(hbt.id,dstr)?(' — '+noteFor(hbt.id,dstr)):'');
-          cell.style.cursor='pointer'; cell.onclick=()=>{ if(hbt.track==='count') setLog(hbt,dstr, done?false:(hbt.goal||1)); else toggleCheck(hbt,dstr); persist(); render(); };
+          cell.style.cursor='pointer'; cell.onclick=()=>{ if(hbt.track==='session'){ openSession(hbt,dstr,currentStreak(hbt)); return; } if(hbt.track==='count') setLog(hbt,dstr, done?false:(hbt.goal||1)); else toggleCheck(hbt,dstr); persist(); render(); };
         } else {
           const act=data.habits.filter(h=>!h.archived); const due=act.filter(h=>dueOnStrict(h,dstr));
           const doneC=due.filter(h=>isDoneOn(h,dstr)).length; const ratio=due.length?doneC/due.length:0;
@@ -937,26 +992,76 @@ const App = (function () {
     return wrap;
   }
 
-  /* ---- Notes / reflection journal ---- */
+  /* ---- Reflective journal ---- */
+  function collectJournal(){ const out=[];
+    (data.entries||[]).forEach(e=>out.push({kind:'entry', id:e.id, date:e.date, text:e.text||'', mood:e.mood||0, prompt:e.prompt||''}));
+    Object.keys(data.notes||{}).forEach(hid=>{ const m=data.notes[hid]||{}; Object.keys(m).forEach(date=>{ if((m[date]||'').trim()) out.push({kind:'note', hid, date, text:m[date]}); }); });
+    return out; }
+  function journalItem(e){
+    const it=el('div','jitem');
+    if(e.kind==='note'){ const h=data.habits.find(x=>x.id===e.hid);
+      it.appendChild(el('div','ji-ic', esc(h?(h.icon||'•'):'•')));
+      const tx=el('div','ji-txt'); tx.appendChild(el('div','ji-name', h?esc(h.name):'(deleted habit)')); const p=el('div'); p.textContent=e.text; tx.appendChild(p); it.appendChild(tx);
+      if(h){ it.appendChild(el('div','ji-edit','✏️')); it.style.cursor='pointer'; it.title='Edit this note'; it.onclick=()=>openDay(e.hid,e.date); }
+    } else {
+      const mood=MOODS.find(m=>m.v===e.mood);
+      it.appendChild(el('div','ji-ic', mood?mood.e:'📝'));
+      const tx=el('div','ji-txt'); if(e.prompt) tx.appendChild(el('div','ji-name', esc(e.prompt))); const p=el('div'); p.textContent=e.text; tx.appendChild(p); it.appendChild(tx);
+      it.appendChild(el('div','ji-edit','✏️')); it.style.cursor='pointer'; it.title='Edit this entry'; it.onclick=()=>openEntry(e.id);
+    }
+    return it;
+  }
+  function renderJournalList(container){
+    container.innerHTML='';
+    let items=collectJournal(); const q=(journalQuery||'').trim().toLowerCase();
+    if(q) items=items.filter(e=>(e.text||'').toLowerCase().includes(q)||(e.prompt||'').toLowerCase().includes(q));
+    items.sort((a,b)=>b.date.localeCompare(a.date));
+    if(!items.length){ container.appendChild(el('div','empty', q?'No reflections match “'+esc(journalQuery)+'”.':'No reflections yet. Write one above, or tap 📝 next to a habit on Today.')); return; }
+    if(!q){ const today=todayStr(), md=today.slice(5); const onThis=items.filter(e=>e.date!==today && e.date.slice(5)===md);
+      if(onThis.length){ container.appendChild(el('div','jday','📅 On this day, past years')); onThis.slice(0,3).forEach(e=>container.appendChild(journalItem(e))); } }
+    let lastDate=null;
+    items.forEach(e=>{ if(e.date!==lastDate){ container.appendChild(el('div','jday', esc(fmtDate(e.date)))); lastDate=e.date; } container.appendChild(journalItem(e)); });
+  }
   function renderJournal(){
     const wrap=el('div','journal');
     wrap.appendChild(el('div','jhead','Reflections'));
-    const entries=[];
-    Object.keys(data.notes||{}).forEach(hid=>{ const m=data.notes[hid]||{}; Object.keys(m).forEach(date=>entries.push({date,hid,text:m[date]})); });
-    if(!entries.length){ wrap.appendChild(el('div','empty','No reflections yet. In the Today view, tap the 📝 next to a habit, write a note, and Save — it will appear here grouped by date.')); return wrap; }
-    wrap.appendChild(el('div','small','Tap any entry to edit it.'));
-    entries.sort((a,b)=>b.date.localeCompare(a.date));
-    let lastDate=null;
-    entries.forEach(e=>{ const h=data.habits.find(x=>x.id===e.hid);
-      if(e.date!==lastDate){ wrap.appendChild(el('div','jday', esc(fmtDate(e.date)))); lastDate=e.date; }
-      const it=el('div','jitem');
-      it.appendChild(el('div','ji-ic', esc(h?(h.icon||'•'):'•')));
-      const tx=el('div','ji-txt'); tx.appendChild(el('div','ji-name', h?esc(h.name):'(deleted habit)')); const p=el('div'); p.textContent=e.text; tx.appendChild(p);
-      it.appendChild(tx);
-      if(h){ it.appendChild(el('div','ji-edit','✏️')); it.style.cursor='pointer'; it.title='Edit this entry'; it.onclick=()=>openDay(e.hid, e.date); }
-      wrap.appendChild(it);
-    });
+    // compose box
+    const compose=el('div','jcompose');
+    const pIdx=Math.floor(Date.now()/86400000)%JPROMPTS.length;
+    compose.appendChild(el('div','jprompt','💭 '+esc(JPROMPTS[pIdx])));
+    const ta=el('textarea','jinput'); ta.placeholder='Write a reflection…'; compose.appendChild(ta);
+    const actions=el('div','jactions'); const moodRow=el('div','jmood'); let chosenMood=0;
+    MOODS.forEach(m=>{ const b=el('button','jmood-b',m.e); b.type='button'; b.title='Mood '+m.v; b.setAttribute('aria-label','Mood '+m.v);
+      b.onclick=()=>{ chosenMood=(chosenMood===m.v?0:m.v); [...moodRow.children].forEach(c=>c.classList.remove('on')); if(chosenMood) b.classList.add('on'); }; moodRow.appendChild(b); });
+    const saveBtn=el('button','primary','Add entry');
+    saveBtn.onclick=()=>{ const t=ta.value.trim(); if(!t){ ta.focus(); return; } data.entries=data.entries||[]; data.entries.push({id:id(), date:todayStr(), text:t, mood:chosenMood, prompt:JPROMPTS[pIdx]}); persist(); render(); };
+    actions.appendChild(moodRow); const sp=el('span'); sp.style.flex='1'; actions.appendChild(sp); actions.appendChild(saveBtn); compose.appendChild(actions);
+    wrap.appendChild(compose);
+    // search + list
+    const search=el('input','jsearch'); search.type='search'; search.placeholder='Search reflections…'; search.value=journalQuery||''; search.setAttribute('aria-label','Search reflections');
+    const list=el('div','jlist');
+    search.oninput=()=>{ journalQuery=search.value; renderJournalList(list); };
+    wrap.appendChild(search); wrap.appendChild(list); renderJournalList(list);
     return wrap;
+  }
+  function openEntry(eid){
+    const e=(data.entries||[]).find(x=>x.id===eid); if(!e) return;
+    const ov=el('div','overlay'); ov.style.display='flex'; ov.style.zIndex='110';
+    const box=el('div','modal'); box.style.maxWidth='440px';
+    const head=el('div','modal-head','<strong style="flex:1">Reflection · '+esc(e.date)+'</strong>');
+    const close=el('button','iconbtn','✕'); close.onclick=()=>ov.remove(); head.appendChild(close);
+    const body=el('div','modal-body');
+    if(e.prompt) body.appendChild(el('div','small','💭 '+esc(e.prompt)));
+    const ta=el('textarea'); ta.style.cssText='width:100%; min-height:120px; background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:8px;'; ta.value=e.text; body.appendChild(ta);
+    const moodRow=el('div','jmood'); let chosen=e.mood||0;
+    MOODS.forEach(m=>{ const b=el('button','jmood-b'+(chosen===m.v?' on':''),m.e); b.type='button'; b.onclick=()=>{ chosen=(chosen===m.v?0:m.v); [...moodRow.children].forEach(c=>c.classList.remove('on')); if(chosen) b.classList.add('on'); }; moodRow.appendChild(b); });
+    body.appendChild(moodRow);
+    const foot=el('div','modal-foot'); foot.style.justifyContent='space-between';
+    const del=el('button','ghost','Delete'); del.onclick=()=>{ data.entries=data.entries.filter(x=>x.id!==eid); persist(); ov.remove(); render(); };
+    const save=el('button','primary','Save'); save.onclick=()=>{ const t=ta.value.trim(); if(!t){ data.entries=data.entries.filter(x=>x.id!==eid); } else { e.text=t; e.mood=chosen; } persist(); ov.remove(); render(); };
+    foot.appendChild(del); foot.appendChild(save);
+    box.appendChild(head); box.appendChild(body); box.appendChild(foot); ov.appendChild(box); document.body.appendChild(ov);
+    setTimeout(()=>ta.focus(),0); ov.addEventListener('mousedown',ev=>{ if(ev.target===ov) ov.remove(); });
   }
 
   function celebrate(h,streak){
@@ -988,6 +1093,71 @@ const App = (function () {
     setTimeout(()=>ta.focus(),0); ov.addEventListener('mousedown',e=>{ if(e.target===ov) ov.remove(); });
   }
 
+  /* ---- workout session logging ---- */
+  function openSession(h,date,prevStreak){
+    const s=sessionOf(h,date)||{};
+    const ov=el('div','overlay'); ov.style.display='flex'; ov.style.zIndex='110';
+    const box=el('div','modal'); box.style.maxWidth='420px';
+    const head=el('div','modal-head','<strong style="flex:1">'+esc(h.name)+' · '+esc(date)+'</strong>');
+    const close=el('button','iconbtn','✕'); close.setAttribute('aria-label','Close'); close.onclick=()=>ov.remove(); head.appendChild(close);
+    const body=el('div','modal-body');
+    const mkInput=()=>{ const i=el('input'); i.style.cssText='width:100%; background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:8px;'; return i; };
+    const field=(labelText,inp)=>{ const f=el('div','field'); f.appendChild(el('label',null,labelText)); f.appendChild(inp); return f; };
+    const min=mkInput(); min.type='number'; min.min='0'; min.placeholder='e.g. 45'; if(s.min!=null) min.value=s.min;
+    const dist=mkInput(); dist.type='number'; dist.min='0'; dist.step='any'; dist.placeholder='e.g. 20'; if(s.dist!=null&&s.dist!==0) dist.value=s.dist;
+    const rpe=mkInput(); rpe.type='number'; rpe.min='1'; rpe.max='10'; rpe.placeholder='1–10'; if(s.rpe) rpe.value=s.rpe;
+    const note=el('textarea'); note.style.cssText='width:100%; min-height:70px; background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:8px;'; note.placeholder='How did it go?'; note.value=s.note||'';
+    body.appendChild(field('Duration (minutes)',min));
+    body.appendChild(field('Distance'+(h.unit?(' ('+esc(h.unit)+')'):' (optional)'),dist));
+    body.appendChild(field('Effort — RPE 1–10 (optional)',rpe));
+    body.appendChild(field('Notes',note));
+    const foot=el('div','modal-foot'); foot.style.justifyContent='space-between';
+    const del=el('button','ghost','Clear'); del.onclick=()=>{ setLog(h,date,null); persist(); ov.remove(); render(); };
+    const save=el('button','primary','Save');
+    save.onclick=()=>{
+      const mn=Math.max(0,parseInt(min.value,10)||0), ds=Math.max(0,parseFloat(dist.value)||0), rp=Math.max(0,Math.min(10,parseInt(rpe.value,10)||0)), nt=note.value.trim();
+      if(!mn && !ds && !rp && !nt) setLog(h,date,null); else setLog(h,date,{min:mn,dist:ds,rpe:rp,note:nt});
+      persist(); ov.remove(); render();
+      if(typeof prevStreak==='number'){ const now=currentStreak(h); if(now>prevStreak && MILESTONES.includes(now)) celebrate(h,now); }
+    };
+    foot.appendChild(del); foot.appendChild(save);
+    box.appendChild(head); box.appendChild(body); box.appendChild(foot); ov.appendChild(box); document.body.appendChild(ov);
+    setTimeout(()=>min.focus(),0); ov.addEventListener('mousedown',e=>{ if(e.target===ov) ov.remove(); });
+  }
+
+  /* ---- Training view (aggregates workout-session habits) ---- */
+  function renderTraining(){
+    const wrap=el('div','training'); const sh=sessionHabits();
+    if(!sh.length){ wrap.appendChild(el('div','empty','No workout habits yet. Add a habit (＋ Habit), set its tracking to “Log a workout session,” and your sessions will roll up here.')); return wrap; }
+    const today=todayStr(); const wkStart=startOfWeek(today);
+    const weekVol=(hs)=>{ let m=0,d=0,c=0; sh.forEach(h=>{ for(let i=0;i<7;i++){ const day=addDays(hs,i); if(day>today) break; const s=sessionOf(h,day); if(s){ m+=(+s.min||0); d+=(+s.dist||0); c++; } } }); return {m,d,c}; };
+    const thisWk=weekVol(wkStart), lastWk=weekVol(addDays(wkStart,-7));
+    const summary=el('div','tr-summary');
+    summary.appendChild(el('div','trs-big', fmtDur(thisWk.m)));
+    summary.appendChild(el('div','small','this week · '+thisWk.c+' session'+(thisWk.c===1?'':'s')+(thisWk.d?(' · '+Math.round(thisWk.d)+' dist'):'')));
+    const diff=thisWk.m-lastWk.m; const tr=el('div','small'); tr.style.marginTop='2px';
+    tr.textContent = lastWk.m ? ((diff>=0?'▲ ':'▼ ')+fmtDur(Math.abs(diff))+' vs last week ('+fmtDur(lastWk.m)+')') : 'First week of training data';
+    summary.appendChild(tr); wrap.appendChild(summary);
+    const weeks=[]; for(let w=5;w>=0;w--){ weeks.push(Object.assign({off:w}, weekVol(addDays(wkStart,-7*w)))); }
+    const maxM=Math.max(1,...weeks.map(x=>x.m));
+    wrap.appendChild(el('div','small','Weekly volume (last 6 weeks)'));
+    const chart=el('div','tr-weeks');
+    weeks.forEach((x,i)=>{ const col=el('div','tr-week'); const bar=el('div','tr-vbar'); const f=el('span'); f.style.height=Math.max(3,Math.round(x.m/maxM*100))+'%'; bar.appendChild(f); col.appendChild(bar); col.appendChild(el('div','tr-wlbl', x.m?fmtDur(x.m):'–')); col.appendChild(el('div','tr-wlbl2', x.off===0?'now':('-'+x.off+'w'))); chart.appendChild(col); });
+    wrap.appendChild(chart);
+    wrap.appendChild(el('div','small','By activity (this week)'));
+    sh.forEach(h=>{ const a=sessionAgg(h,7); const row=el('div','tr-hrow');
+      row.innerHTML='<span class="tr-hic" style="color:'+safeColor(h.color,'var(--fg)')+'">'+esc(h.icon||'•')+'</span><span class="tr-hname">'+esc(h.name)+'</span><span class="tr-hval">'+fmtDur(a.min)+(a.dist?(' · '+Math.round(a.dist)+(h.unit?(' '+esc(h.unit)):'')):'')+'</span>';
+      wrap.appendChild(row); });
+    const recent=allSessions(45).slice(0,12);
+    if(recent.length){ wrap.appendChild(el('div','small','Recent sessions'));
+      recent.forEach(r=>{ const parts=[]; if(+r.s.min) parts.push(fmtDur(r.s.min)); if(+r.s.dist) parts.push(Math.round(r.s.dist)+(r.habit.unit?(' '+esc(r.habit.unit)):'')); if(+r.s.rpe) parts.push('RPE '+(+r.s.rpe));
+        const row=el('div','tr-srow'); row.style.cursor='pointer';
+        row.innerHTML='<span class="tr-sic" style="color:'+safeColor(r.habit.color,'var(--fg)')+'">'+esc(r.habit.icon||'•')+'</span><span class="tr-sname">'+esc(r.habit.name)+' <span class="tr-sdate">'+esc(fmtDate(r.date))+'</span></span><span class="tr-sval">'+esc(parts.join(' · '))+'</span>';
+        row.onclick=()=>openSession(r.habit,r.date,currentStreak(r.habit)); wrap.appendChild(row); });
+    }
+    return wrap;
+  }
+
   /* ---- habit editor ---- */
   let pickIcon=ICONS[0], pickColor=COLORS[0], pickDays=[1,2,3,4,5];
   function openEditor(hid){
@@ -1006,7 +1176,11 @@ const App = (function () {
   function renderDayPick(){ const box=$('#h_days'); box.innerHTML=''; const lbl=['Su','Mo','Tu','We','Th','Fr','Sa'];
     for(let d=0;d<7;d++){ const b=el('button','dow-btn'+(pickDays.includes(d)?' on':''),lbl[d]); b.onclick=()=>{ if(pickDays.includes(d)) pickDays=pickDays.filter(x=>x!==d); else pickDays.push(d); renderDayPick(); }; box.appendChild(b); } }
   function syncSchedFields(){ const t=$('#h_sched').value; $('#h_daysWrap').style.display=t==='days'?'block':'none'; $('#h_targetWrap').style.display=t==='weekly'?'block':'none';
-    const tr=$('#h_track').value; const count=tr==='count'; $('#h_goalWrap').style.display=count?'block':'none'; $('#h_unitWrap').style.display=count?'block':'none'; }
+    const tr=$('#h_track').value; const count=tr==='count', session=tr==='session';
+    $('#h_goalWrap').style.display=count?'block':'none';
+    $('#h_unitWrap').style.display=(count||session)?'block':'none';
+    const ul=$('#h_unitLabel'); if(ul) ul.textContent = session ? 'Distance unit (optional)' : 'Unit';
+    const ui=$('#h_unit'); if(ui) ui.placeholder = session ? 'km, mi… (blank = time only)' : 'min, pages…'; }
   function commitEditor(){ if(!editingId) return; const h=data.habits.find(x=>x.id===editingId); if(!h) return;
     h.name=$('#h_name').value.trim()||'Untitled'; h.icon=pickIcon; h.color=pickColor;
     const t=$('#h_sched').value; const sched={type:t}; if(t==='days') sched.days=pickDays.slice().sort(); if(t==='weekly') sched.target=Math.max(1,Math.min(7,parseInt($('#h_target').value,10)||3));
@@ -1068,7 +1242,8 @@ const App = (function () {
 
   return { start(){ wire(); SNBridge.init({ debounceSave:250, onNote:(text)=>{ standalone=false; load(text); }, onStandalone:()=>{ standalone=true; load(''); } }); },
     _test:{ combinedRate, weeklyRates, dowRates, habitMomentum, coOccur, bestPairing, skipCount, journalStats, historyDays, buildAIExport, currentStreak, longestStreak, completionRate, addDays, todayStr,
-      totalXP, levelInfo, totalCompletions, perfectDaysAllTime, earnedAchievements, ensureGamSeed, ACHIEVEMENTS, _set:(d)=>{data=d;} } };
+      totalXP, levelInfo, totalCompletions, perfectDaysAllTime, earnedAchievements, ensureGamSeed, ACHIEVEMENTS,
+      isDoneOn, setLog, sessionOf, sessionAgg, sessionHabits, allSessions, collectJournal, _set:(d)=>{data=d;} } };
 })();
 
 document.addEventListener('DOMContentLoaded', App.start);
