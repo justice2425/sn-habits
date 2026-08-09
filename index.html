@@ -410,7 +410,8 @@ const App = (function () {
 
   let data=null, dirty=false, editingId=null, standalone=false;
   const undoStack=[]; let lastSerialized=null; let lastRenderDay=null;
-  let monthOffset=0, monthHabit=''; let lastXPSeen=null; let journalQuery='';
+  let monthOffset=0, monthHabit=''; let lastXPSeen=null; let journalQuery=''; let trainRange=6; let healthDismissed=false;
+  const NOTE_WARN_BYTES=2*1024*1024;   // heuristic: large notes can slow SN sync
   const JPROMPTS=['What mattered most today?','What are you grateful for?','What did you learn today?','What drained or energized you?','One thing to do differently tomorrow.','Where did you make progress?'];
   const MOODS=[{v:1,e:'😞'},{v:2,e:'😕'},{v:3,e:'😐'},{v:4,e:'🙂'},{v:5,e:'😄'}];
 
@@ -429,7 +430,7 @@ const App = (function () {
     if(!parsed||!Array.isArray(parsed.habits)) data=defaultData(); else data=migrate(parsed);
     if(standalone){ try{ const s=localStorage.getItem('sn-habits-standalone'); if(s) data=migrate(JSON.parse(s)); }catch(e){} }
     ensureGamSeed();
-    lastSerialized=JSON.stringify(data); undoStack.length=0; render();
+    lastSerialized=JSON.stringify(data); undoStack.length=0; healthDismissed=false; render();
   }
   function migrate(d){ d.schema=d.schema||1; d.habits=d.habits||[]; d.log=d.log||{}; d.notes=d.notes||{}; d.ui=d.ui||{view:'today'};
     // Grid/Month/Year merged into one Calendar view with a zoom toggle
@@ -452,6 +453,15 @@ const App = (function () {
   function previewText(){ const today=todayStr(); const act=data.habits.filter(h=>!h.archived);
     const done=act.filter(h=>scheduledOn(h,today)&&isDoneOn(h,today)).length; const due=act.filter(h=>scheduledOn(h,today)).length;
     return done+' / '+due+' habits done today · '+act.length+' tracked'; }
+  /* ---- note-size guardrail (this note holds all your history) ---- */
+  function noteBytes(){ try{ return new Blob([JSON.stringify(data)]).size; }catch(e){ return JSON.stringify(data).length; } }
+  function humanBytes(b){ b=b||0; return b<1024?b+' B':b<1048576?(b/1024).toFixed(0)+' KB':(b/1048576).toFixed(1)+' MB'; }
+  function renderHealthBanner(){ const old=document.getElementById('healthBanner'); if(old) old.remove(); if(healthDismissed) return;
+    const bytes=noteBytes(); if(bytes<NOTE_WARN_BYTES) return;
+    const b=el('div'); b.id='healthBanner'; b.style.cssText='display:flex; align-items:center; gap:10px; margin:8px 14px 0; padding:8px 12px; border-radius:8px; border:1px solid var(--danger); background:color-mix(in srgb, var(--danger) 12%, transparent); font-size:13px;';
+    const span=el('span'); span.style.flex='1'; span.textContent='⚠️ This note is '+humanBytes(bytes)+' — large notes can slow Standard Notes sync. See Stats for details.'; b.appendChild(span);
+    const x=el('button','ghost','Dismiss'); x.setAttribute('aria-label','Dismiss'); x.onclick=()=>{ healthDismissed=true; renderHealthBanner(); }; b.appendChild(x);
+    const s=$('#surface'); s.parentNode.insertBefore(b,s); }
 
   /* ---- date helpers ---- */
   function todayStr(){ const d=new Date(); d.setHours(0,0,0,0); return toISODate(d); }
@@ -483,6 +493,65 @@ const App = (function () {
   function metricAgg(h,days){ const today=todayStr(); let count=0,min=0,dist=0; for(let i=0;i<days;i++){ const m=metricOf(h.id,addDays(today,-i)); if(m){ count++; min+=(+m.min||0); dist+=(+m.dist||0); } } return {count,min,dist}; }
   function allWorkouts(days){ const today=todayStr(); const out=[]; workoutHabits().forEach(h=>{ for(let i=0;i<days;i++){ const d=addDays(today,-i); const m=metricOf(h.id,d); if(m) out.push({habit:h,date:d,m}); } }); return out.sort((a,b)=>b.date.localeCompare(a.date)); }
   function fmtDur(min){ min=Math.round(+min||0); const h=Math.floor(min/60), m=min%60; return h?(h+'h'+(m?(' '+m+'m'):'')):(m+'m'); }
+  function allTimeTotals(){ let count=0,min=0,dist=0; Object.keys(data.metrics||{}).forEach(hid=>{ const mm=data.metrics[hid]||{}; Object.keys(mm).forEach(dt=>{ const m=mm[dt]; if(m&&((+m.dist>0)||(+m.min>0))){ count++; min+=(+m.min||0); dist+=(+m.dist||0); } }); }); return {count,min,dist}; }
+
+  /* ---- Garmin Connect CSV import (all local; nothing is uploaded) ---- */
+  function parseCSV(text){ const s=String(text||'').replace(/\r\n?/g,'\n'); const rows=[]; let i=0,f='',row=[],q=false;
+    while(i<s.length){ const c=s[i];
+      if(q){ if(c==='"'){ if(s[i+1]==='"'){ f+='"'; i+=2; continue; } q=false; i++; continue; } f+=c; i++; continue; }
+      if(c==='"'){ q=true; i++; continue; }
+      if(c===','){ row.push(f); f=''; i++; continue; }
+      if(c==='\n'){ row.push(f); rows.push(row); row=[]; f=''; i++; continue; }
+      f+=c; i++; }
+    if(f.length||row.length){ row.push(f); rows.push(row); }
+    return rows.filter(r=>r.length && !(r.length===1 && !String(r[0]).trim())); }
+  function toIsoDate(s){ s=String(s||'').trim(); if(!s) return null;
+    let m=s.match(/(\d{4})-(\d{2})-(\d{2})/); if(m) return m[1]+'-'+m[2]+'-'+m[3];
+    m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/); if(m){ return m[3]+'-'+('0'+m[1]).slice(-2)+'-'+('0'+m[2]).slice(-2); }
+    const d=new Date(s); if(!isNaN(d)){ const z=new Date(d.getTime()-d.getTimezoneOffset()*60000); return z.toISOString().slice(0,10); } return null; }
+  function parseTimeMin(s){ s=String(s||'').trim(); if(!s||s==='--') return 0; const p=s.split(':').map(x=>parseFloat(x)||0);
+    if(p.length===3) return Math.round(p[0]*60+p[1]+p[2]/60); if(p.length===2) return Math.round(p[0]+p[1]/60); return Math.round(parseFloat(s)||0); }
+  function parseGarminCSV(text){
+    const rows=parseCSV(text); if(rows.length<2) return {activities:[],types:[],skipped:0,error:'The file looks empty or has no rows.'};
+    const H=rows[0].map(x=>String(x).trim().toLowerCase());
+    const col=(names)=>{ for(const n of names){ const i=H.indexOf(n); if(i>=0) return i; } for(let i=0;i<H.length;i++){ if(names.some(n=>H[i].includes(n))) return i; } return -1; };
+    const ci={ type:col(['activity type','type']), date:col(['date']), dist:col(['distance']), time:col(['time','duration','moving']), rpe:col(['rpe','perceived exertion','perceived effort']) };
+    if(ci.date<0) return {activities:[],types:[],skipped:0,error:'No “Date” column found — is this a Garmin Connect activities CSV?'};
+    const acts=[]; let skipped=0;
+    for(let r=1;r<rows.length;r++){ const row=rows[r]; if(!row||row.length<2){ skipped++; continue; }
+      const iso=toIsoDate(row[ci.date]); if(!iso){ skipped++; continue; }
+      const type=((ci.type>=0?row[ci.type]:'')||'Workout').toString().trim()||'Workout';
+      const dist=ci.dist>=0?(parseFloat(String(row[ci.dist]||'').replace(/[^0-9.]/g,''))||0):0;
+      const min=ci.time>=0?parseTimeMin(row[ci.time]):0;
+      const rpe=ci.rpe>=0?Math.max(0,Math.min(10,Math.round(parseFloat(row[ci.rpe])||0))):0;
+      if(!(dist>0)&&!(min>0)&&!(rpe>0)){ skipped++; continue; }
+      acts.push({date:iso,type,dist,min,rpe}); }
+    const seen=new Set(); const uniq=[]; acts.forEach(a=>{ const k=a.date+'|'+a.type+'|'+a.dist+'|'+a.min; if(!seen.has(k)){ seen.add(k); uniq.push(a); } });
+    const types=Array.from(new Set(uniq.map(a=>a.type))).sort();
+    const dates=uniq.map(a=>a.date).sort();
+    return {activities:uniq, types, skipped:skipped+(acts.length-uniq.length), first:dates[0], last:dates[dates.length-1]}; }
+  function guessHabit(type){ const t=type.toLowerCase();
+    const find=re=>data.habits.find(h=>!h.archived && re.test(h.name));
+    if(/cycl|bike|ride/.test(t)) return (find(/cycl|bike|ride/)||{}).id;
+    if(/run|jog|treadmill/.test(t)) return (find(/run|jog/)||{}).id;
+    if(/walk|hike/.test(t)) return (find(/walk|hike/)||{}).id;
+    if(/swim/.test(t)) return (find(/swim/)||{}).id;
+    if(/strength|weight|gym|lift/.test(t)) return (find(/off-?bike|strength|gym|weight|exercise/)||{}).id;
+    return (workoutHabits()[0]||data.habits.find(h=>!h.archived)||{}).id; }
+  function applyImport(parsed, mapping, unit, policy, markDone){
+    const conv = unit==='km' ? 0.621371 : 1; const groups={};
+    parsed.activities.forEach(a=>{ const hid=mapping[a.type]; if(!hid||hid==='skip') return;
+      const key=hid+'|'+a.date; const g=groups[key]||(groups[key]={hid,date:a.date,dist:0,min:0,rpe:0});
+      g.dist+=a.dist*conv; g.min+=a.min; g.rpe=Math.max(g.rpe,a.rpe); });
+    let days=0, skippedExisting=0, markedDone=0;
+    Object.values(groups).forEach(g=>{ const h=data.habits.find(x=>x.id===g.hid); if(!h) return; h.workout=true;
+      const ex=metricOf(g.hid,g.date); let val={dist:Math.round(g.dist*100)/100, min:Math.round(g.min), rpe:g.rpe||0};
+      if(ex && ((+ex.dist>0)||(+ex.min>0)||(+ex.rpe>0))){ if(policy==='skip'){ skippedExisting++; return; }
+        if(policy==='add'){ val={dist:Math.round((ex.dist+val.dist)*100)/100, min:ex.min+val.min, rpe:Math.max(ex.rpe,val.rpe)}; } }
+      setMetric(g.hid,g.date,val); days++;
+      if(markDone && !isSkipped(h,g.date) && logVal(h,g.date)!==true){ setLog(h,g.date,true); markedDone++; } });
+    persist(); render();
+    return {days, skippedExisting, markedDone}; }
 
   function currentStreak(h){
     const today=todayStr();
@@ -685,6 +754,7 @@ const App = (function () {
     const arch=data.habits.filter(h=>h.archived); const ab=$('#archBtn');
     if(ab){ if(arch.length){ ab.style.display=''; ab.textContent='Archived ('+arch.length+')'; } else ab.style.display='none'; }
     lastRenderDay = today;
+    renderHealthBanner();
     const s=$('#surface'); s.innerHTML='';
     if(data.ui.view==='calendar') s.appendChild(renderCalendar());
     else if(data.ui.view==='training') s.appendChild(renderTraining());
@@ -859,6 +929,10 @@ const App = (function () {
       wrap.appendChild(card);
     });
     outer.appendChild(wrap);
+    const nb=noteBytes(), big=nb>=NOTE_WARN_BYTES;
+    const hl=el('div','small'); hl.style.cssText='margin-top:14px;'+(big?'color:var(--danger); font-weight:600;':'');
+    hl.textContent='Note size: '+humanBytes(nb)+(big?' — large; this note holds all your history. Archiving old habits or trimming journal entries keeps sync fast.':' · plenty of room.');
+    outer.appendChild(hl);
     return outer;
   }
 
@@ -1124,7 +1198,12 @@ const App = (function () {
   /* ---- Training view (aggregates habits that track workout metrics) ---- */
   function renderTraining(){
     const wrap=el('div','training'); const sh=workoutHabits();
-    if(!sh.length){ wrap.appendChild(el('div','empty','No workout habits yet. Open a habit → ✎ Edit and tick “Track workout stats,” then log distance / time / RPE from the 📝 button on Today. Your totals roll up here.')); return wrap; }
+    // header with import button
+    const hdr=el('div'); hdr.style.cssText='display:flex; align-items:center; gap:8px; margin-bottom:10px;';
+    hdr.appendChild(el('div','small','Training')); const sp=el('span'); sp.style.flex='1'; hdr.appendChild(sp);
+    const imp=el('button','ghost','⤓ Import Garmin CSV'); imp.style.fontSize='13px'; imp.onclick=openImport; hdr.appendChild(imp);
+    wrap.appendChild(hdr);
+    if(!sh.length){ wrap.appendChild(el('div','empty','No workout habits yet. Open a habit → ✎ Edit and tick “Track workout stats” (or import a Garmin CSV above) — then log distance / time / RPE from the 🏋️ button on Today. Totals roll up here.')); return wrap; }
     const today=todayStr(); const wkStart=startOfWeek(today);
     const weekVol=(hs)=>{ let m=0,d=0,c=0; sh.forEach(h=>{ for(let i=0;i<7;i++){ const day=addDays(hs,i); if(day>today) break; const s=metricOf(h.id,day); if(s){ m+=(+s.min||0); d+=(+s.dist||0); c++; } } }); return {m,d,c}; };
     const thisWk=weekVol(wkStart), lastWk=weekVol(addDays(wkStart,-7));
@@ -1133,12 +1212,18 @@ const App = (function () {
     summary.appendChild(el('div','small','this week · '+thisWk.c+' session'+(thisWk.c===1?'':'s')+(thisWk.d?(' · '+Math.round(thisWk.d)+' mi'):'')));
     const diff=thisWk.m-lastWk.m; const tr=el('div','small'); tr.style.marginTop='2px';
     tr.textContent = lastWk.m ? ((diff>=0?'▲ ':'▼ ')+fmtDur(Math.abs(diff))+' vs last week ('+fmtDur(lastWk.m)+')') : 'First week of training data';
-    summary.appendChild(tr); wrap.appendChild(summary);
-    const weeks=[]; for(let w=5;w>=0;w--){ weeks.push(Object.assign({off:w}, weekVol(addDays(wkStart,-7*w)))); }
+    summary.appendChild(tr);
+    const at=allTimeTotals(); if(at.count) summary.appendChild(el('div','small','All-time: '+at.count+' workouts · '+fmtDur(at.min)+(at.dist?(' · '+Math.round(at.dist)+' mi'):'')));
+    wrap.appendChild(summary);
+    // volume chart with range toggle
+    const volHdr=el('div'); volHdr.style.cssText='display:flex; align-items:center; gap:8px;';
+    volHdr.appendChild(el('div','small','Weekly volume')); const vsp=el('span'); vsp.style.flex='1'; volHdr.appendChild(vsp);
+    const seg=el('div','calzoom'); [[6,'6w'],[12,'12w'],[26,'26w']].forEach(o=>{ const b=el('button','calzoom-btn'+(trainRange===o[0]?' on':''),o[1]); b.onclick=()=>{ trainRange=o[0]; render(); }; seg.appendChild(b); }); volHdr.appendChild(seg);
+    wrap.appendChild(volHdr);
+    const N=trainRange; const weeks=[]; for(let w=N-1;w>=0;w--){ weeks.push(Object.assign({off:w}, weekVol(addDays(wkStart,-7*w)))); }
     const maxM=Math.max(1,...weeks.map(x=>x.m));
-    wrap.appendChild(el('div','small','Weekly volume (last 6 weeks)'));
-    const chart=el('div','tr-weeks');
-    weeks.forEach((x)=>{ const col=el('div','tr-week'); const bar=el('div','tr-vbar'); const f=el('span'); f.style.height=Math.max(3,Math.round(x.m/maxM*100))+'%'; bar.appendChild(f); col.appendChild(bar); col.appendChild(el('div','tr-wlbl', x.m?fmtDur(x.m):'–')); col.appendChild(el('div','tr-wlbl2', x.off===0?'now':('-'+x.off+'w'))); chart.appendChild(col); });
+    const chart=el('div','tr-weeks'); if(N>12) chart.style.gap='3px';
+    weeks.forEach((x)=>{ const col=el('div','tr-week'); const bar=el('div','tr-vbar'); const f=el('span'); f.style.height=Math.max(3,Math.round(x.m/maxM*100))+'%'; bar.appendChild(f); col.appendChild(bar); if(N<=12){ col.appendChild(el('div','tr-wlbl', x.m?fmtDur(x.m):'–')); col.appendChild(el('div','tr-wlbl2', x.off===0?'now':('-'+x.off+'w'))); } bar.title=(x.off===0?'this week':(x.off+'w ago'))+': '+fmtDur(x.m); chart.appendChild(col); });
     wrap.appendChild(chart);
     wrap.appendChild(el('div','small','By activity (this week)'));
     sh.forEach(h=>{ const a=metricAgg(h,7); const row=el('div','tr-hrow');
@@ -1152,6 +1237,53 @@ const App = (function () {
         row.onclick=()=>openDay(r.habit.id,r.date); wrap.appendChild(row); });
     }
     return wrap;
+  }
+
+  function uiInfo(message){
+    const ov=el('div','overlay'); ov.style.display='flex'; ov.style.zIndex='120';
+    const box=el('div','modal'); box.style.maxWidth='360px';
+    box.appendChild(el('div','modal-body','<div>'+esc(message)+'</div>'));
+    const foot=el('div','modal-foot'); foot.style.justifyContent='flex-end'; const ok=el('button','primary','OK'); ok.onclick=()=>ov.remove(); foot.appendChild(ok);
+    box.appendChild(foot); ov.appendChild(box); document.body.appendChild(ov); ov.addEventListener('mousedown',e=>{ if(e.target===ov) ov.remove(); });
+  }
+  function openImport(){
+    const fi=document.createElement('input'); fi.type='file'; fi.accept='.csv,text/csv,text/plain'; fi.style.display='none'; document.body.appendChild(fi);
+    fi.onchange=()=>{ const file=fi.files&&fi.files[0]; fi.remove(); if(!file) return;
+      const rd=new FileReader(); rd.onload=()=>{ let p; try{ p=parseGarminCSV(String(rd.result)); }catch(e){ p={activities:[],types:[],error:'Could not parse that file.'}; } importModal(p); };
+      rd.onerror=()=>importModal({activities:[],types:[],error:'Could not read that file.'}); rd.readAsText(file); };
+    fi.click();
+  }
+  function importModal(parsed){
+    const ov=el('div','overlay'); ov.style.display='flex'; ov.style.zIndex='115';
+    const box=el('div','modal'); box.style.maxWidth='480px';
+    const head=el('div','modal-head','<strong style="flex:1">Import Garmin workouts</strong>');
+    const close=el('button','iconbtn','✕'); close.setAttribute('aria-label','Close'); close.onclick=()=>ov.remove(); head.appendChild(close);
+    const body=el('div','modal-body');
+    if(parsed.error || !parsed.activities.length){
+      body.appendChild(el('div','small', esc(parsed.error||'No workouts with distance, time or RPE were found in that file.')));
+      body.appendChild(el('div','small','In Garmin Connect on the web: open <strong>Activities</strong>, then use <strong>Export CSV</strong> (top-right of the list) and pick that file here.'));
+      const foot=el('div','modal-foot'); foot.style.justifyContent='flex-end'; const ok=el('button','ghost','Close'); ok.onclick=()=>ov.remove(); foot.appendChild(ok);
+      box.appendChild(head); box.appendChild(body); box.appendChild(foot); ov.appendChild(box); document.body.appendChild(ov); ov.addEventListener('mousedown',e=>{ if(e.target===ov) ov.remove(); }); return;
+    }
+    body.appendChild(el('div','small','Found <strong>'+parsed.activities.length+'</strong> activities'+(parsed.first?(' ('+esc(parsed.first)+' → '+esc(parsed.last)+')'):'')+(parsed.skipped?('. '+parsed.skipped+' rows skipped or duplicate'):'')+'.'));
+    const unitWrap=el('div','field'); unitWrap.appendChild(el('label',null,'Distance unit in the file'));
+    const unitSel=el('select'); [['mi','Miles'],['km','Kilometers']].forEach(o=>{ const op=el('option'); op.value=o[0]; op.textContent=o[1]; unitSel.appendChild(op); }); unitWrap.appendChild(unitSel); body.appendChild(unitWrap);
+    body.appendChild(el('div','small','Send each activity type to a habit:'));
+    const maps={}; const habitOpts=data.habits.filter(h=>!h.archived);
+    parsed.types.forEach(t=>{ const f=el('div','field'); f.appendChild(el('label',null,esc(t)));
+      const sel=el('select'); const sk=el('option'); sk.value='skip'; sk.textContent='— skip —'; sel.appendChild(sk);
+      habitOpts.forEach(h=>{ const op=el('option'); op.value=h.id; op.textContent=h.name; sel.appendChild(op); });
+      sel.value=guessHabit(t)||'skip'; maps[t]=sel.value; sel.onchange=()=>{ maps[t]=sel.value; }; f.appendChild(sel); body.appendChild(f); });
+    const polWrap=el('div','field'); polWrap.appendChild(el('label',null,'If a day already has data'));
+    const pol=el('select'); [['skip','Keep what I already have (recommended)'],['overwrite','Replace it with the import'],['add','Add them together']].forEach(o=>{ const op=el('option'); op.value=o[0]; op.textContent=o[1]; pol.appendChild(op); }); polWrap.appendChild(pol); body.appendChild(polWrap);
+    const mdLbl=el('label','small'); mdLbl.style.cssText='display:flex; align-items:center; gap:8px; cursor:pointer;'; const md=el('input'); md.type='checkbox'; md.checked=true; md.style.cssText='width:auto; margin:0;'; mdLbl.appendChild(md); mdLbl.appendChild(document.createTextNode(' Mark the habit complete on workout days')); body.appendChild(mdLbl);
+    const foot=el('div','modal-foot'); foot.style.justifyContent='flex-end';
+    const cancel=el('button','ghost','Cancel'); cancel.onclick=()=>ov.remove();
+    const imp=el('button','primary','Import'); imp.onclick=()=>{ const res=applyImport(parsed, maps, unitSel.value, pol.value, md.checked); ov.remove();
+      uiInfo('Imported '+res.days+' day'+(res.days===1?'':'s')+' of workouts'+(res.markedDone?(' · '+res.markedDone+' days marked complete'):'')+(res.skippedExisting?(' · '+res.skippedExisting+' existing days kept'):'')+'.'); };
+    foot.appendChild(cancel); foot.appendChild(imp);
+    box.appendChild(head); box.appendChild(body); box.appendChild(foot); ov.appendChild(box); document.body.appendChild(ov);
+    ov.addEventListener('mousedown',e=>{ if(e.target===ov) ov.remove(); });
   }
 
   /* ---- habit editor ---- */
@@ -1237,7 +1369,8 @@ const App = (function () {
   return { start(){ wire(); SNBridge.init({ debounceSave:250, onNote:(text)=>{ standalone=false; load(text); }, onStandalone:()=>{ standalone=true; load(''); } }); },
     _test:{ combinedRate, weeklyRates, dowRates, habitMomentum, coOccur, bestPairing, skipCount, journalStats, historyDays, buildAIExport, currentStreak, longestStreak, completionRate, addDays, todayStr,
       totalXP, levelInfo, totalCompletions, perfectDaysAllTime, earnedAchievements, ensureGamSeed, ACHIEVEMENTS,
-      isDoneOn, setLog, metricOf, setMetric, metricAgg, workoutHabits, allWorkouts, collectJournal, _set:(d)=>{data=d;} } };
+      isDoneOn, setLog, metricOf, setMetric, metricAgg, workoutHabits, allWorkouts, collectJournal,
+      parseGarminCSV, applyImport, guessHabit, allTimeTotals, _get:()=>data, _set:(d)=>{data=d;} } };
 })();
 
 document.addEventListener('DOMContentLoaded', App.start);
