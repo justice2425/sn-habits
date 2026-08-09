@@ -234,9 +234,10 @@
   .reward-badge { font-size:46px; line-height:1; animation:rewardpop .5s cubic-bezier(.18,1.4,.4,1) both; }
   @keyframes rewardpop { 0%{ transform:scale(.3); opacity:0; } 60%{ transform:scale(1.15); opacity:1; } 100%{ transform:scale(1); } }
 
-  /* ---- Workout session pill (Today) ---- */
-  .sesspill { font-size:12px; border:1px solid var(--border); border-radius:999px; padding:3px 10px; cursor:pointer; flex:0 0 auto; white-space:nowrap; }
-  .sesspill.on { color:var(--accent); border-color:var(--accent); }
+  /* ---- Workout metrics pill (Today) ---- */
+  .wpill { display:inline-block; font-size:12px; border:1px dashed var(--border); background:transparent; border-radius:999px; padding:3px 10px; cursor:pointer; margin:8px 0 4px 36px; color:var(--muted); }
+  .wpill:hover { border-color:var(--accent); color:var(--accent); }
+  .wpill.on { border-style:solid; color:var(--accent); border-color:var(--accent); }
 
   /* ---- Training view ---- */
   .training { max-width:640px; }
@@ -325,7 +326,6 @@
           <select id="h_track">
             <option value="check">Check off</option>
             <option value="count">Count toward a goal</option>
-            <option value="session">Log a workout session</option>
           </select>
         </div>
         <div class="field" id="h_goalWrap" style="display:none;">
@@ -336,6 +336,12 @@
           <label id="h_unitLabel">Unit</label>
           <input id="h_unit" type="text" placeholder="min, pages…" />
         </div>
+      </div>
+      <div class="field">
+        <label class="optcheck" style="display:flex; align-items:center; gap:8px; font-weight:400; cursor:pointer;">
+          <input type="checkbox" id="h_workout" style="width:auto; margin:0;" />
+          🏋️ Track workout stats (distance, time, RPE) for this habit
+        </label>
       </div>
     </div>
     <div class="modal-foot">
@@ -411,11 +417,13 @@ const App = (function () {
   /* ---- persistence ---- */
   function id(){ return (window.crypto&&crypto.randomUUID)?crypto.randomUUID().slice(0,8):Math.random().toString(36).slice(2,10); }
   function defaultData(){
-    const mk = (name,icon,color)=>({ id:id(), name, icon, color, schedule:{type:'daily'}, track:'check', goal:1, unit:'', archived:false, createdAt:new Date().toISOString() });
+    const mk = (name,icon,color,workout)=>({ id:id(), name, icon, color, schedule:{type:'daily'}, track:'check', goal:1, unit:'', workout:!!workout, archived:false, createdAt:new Date().toISOString() });
     return { schema:SCHEMA,
-      habits:[ mk('Cycling','🚴',COLORS[0]), mk('Off-bike exercise','💪',COLORS[1]), mk('Reading','📖',COLORS[2]), mk('Writing','✍️',COLORS[3]) ],
-      log:{}, notes:{}, entries:[], ui:{ view:'today', calZoom:'month' }, gam:{} };
+      habits:[ mk('Cycling','🚴',COLORS[0],true), mk('Off-bike exercise','💪',COLORS[1],true), mk('Reading','📖',COLORS[2]), mk('Writing','✍️',COLORS[3]) ],
+      log:{}, notes:{}, metrics:{}, entries:[], ui:{ view:'today', calZoom:'month' }, gam:{} };
   }
+  // names that suggest a physical activity — auto-enable workout metrics on first upgrade
+  const WORKOUT_RE = /bike|cycl|run|jog|walk|swim|exercise|workout|gym|lift|weight|row|yoga|pilates|hike|sport|training|cardio|stretch/i;
   function load(text){
     let parsed=null; if(text&&text.trim()){ try{parsed=JSON.parse(text);}catch(e){parsed=null;} }
     if(!parsed||!Array.isArray(parsed.habits)) data=defaultData(); else data=migrate(parsed);
@@ -427,7 +435,16 @@ const App = (function () {
     // Grid/Month/Year merged into one Calendar view with a zoom toggle
     if(['grid','month','year'].includes(d.ui.view)){ d.ui.calZoom=d.ui.view; d.ui.view='calendar'; }
     if(!d.ui.calZoom) d.ui.calZoom='month';
-    d.habits.forEach(h=>{ h.schedule=h.schedule||{type:'daily'}; if(typeof h.archived==='undefined') h.archived=false; if(!h.track) h.track='check'; if(typeof h.goal==='undefined') h.goal=1; });
+    d.metrics = d.metrics || {};
+    d.habits.forEach(h=>{ h.schedule=h.schedule||{type:'daily'}; if(typeof h.archived==='undefined') h.archived=false; if(!h.track) h.track='check'; if(typeof h.goal==='undefined') h.goal=1;
+      // Retire the old 'session' track type → a normal check-off habit that tracks workout metrics
+      if(h.track==='session'){ h.track='check'; h.workout=true;
+        const lg=d.log[h.id]||{}; Object.keys(lg).forEach(date=>{ const v=lg[date]; if(v && typeof v==='object' && !Array.isArray(v)){
+          d.metrics[h.id]=d.metrics[h.id]||{}; d.metrics[h.id][date]={dist:+v.dist||0, min:+v.min||0, rpe:+v.rpe||0};
+          if(v.note){ d.notes[h.id]=d.notes[h.id]||{}; if(!d.notes[h.id][date]) d.notes[h.id][date]=v.note; }
+          lg[date]=true; } }); }
+      // first upgrade: auto-enable workout metrics for activity-sounding habits
+      if(typeof h.workout==='undefined') h.workout = WORKOUT_RE.test(h.name||''); });
     d.gam = d.gam || {}; if(!Array.isArray(d.entries)) d.entries=[]; return d; }
   function saveOut(){ const t=JSON.stringify(data); lastSerialized=t; if(standalone){ try{localStorage.setItem('sn-habits-standalone',t);}catch(e){} return; } SNBridge.save(t, previewText()); }
   function persist(){ dirty=true; if(lastSerialized!==null){ const cur=JSON.stringify(data); if(cur!==lastSerialized){ undoStack.push(lastSerialized); if(undoStack.length>60) undoStack.shift(); } } saveOut(); }
@@ -448,20 +465,23 @@ const App = (function () {
     if(s.type==='days'){ const d=new Date(iso+'T00:00:00').getDay(); return (s.days||[]).includes(d); }
     return true; } // daily and weekly: every day is a candidate
   function logVal(h,iso){ return (data.log[h.id]||{})[iso]; }
-  function isDoneOn(h,iso){ const v=logVal(h,iso);
-    if(h.track==='count') return (typeof v==='number')&&v>=(h.goal||1);
-    if(h.track==='session') return !!(v && typeof v==='object' && ((+v.min>0)||(+v.dist>0)));
-    return v===true; }
-  function sessionOf(h,iso){ const v=logVal(h,iso); return (v && typeof v==='object' && !Array.isArray(v)) ? v : null; }
+  function isDoneOn(h,iso){ const v=logVal(h,iso); if(h.track==='count') return (typeof v==='number')&&v>=(h.goal||1); return v===true; }
+  /* ---- optional workout metrics (distance/time/RPE) attached to any habit's day ---- */
+  function metricOf(hid,iso){ return (data.metrics && data.metrics[hid] && data.metrics[hid][iso]) || null; }
+  function setMetric(hid,iso,obj){ data.metrics=data.metrics||{}; const m=data.metrics[hid]=data.metrics[hid]||{};
+    const clean = obj && ((+obj.dist>0)||(+obj.min>0)||(+obj.rpe>0)) ? {dist:+obj.dist||0, min:+obj.min||0, rpe:+obj.rpe||0} : null;
+    if(clean) m[iso]=clean; else delete m[iso]; if(Object.keys(m).length===0) delete data.metrics[hid]; }
+  function hasMetric(hid,iso){ const m=metricOf(hid,iso); return !!(m && ((+m.dist>0)||(+m.min>0)||(+m.rpe>0))); }
+  function metricSummary(m,h){ if(!m) return ''; const p=[]; if(+m.dist) p.push((+m.dist)+' mi'); if(+m.min) p.push(fmtDur(m.min)); if(+m.rpe) p.push('RPE '+(+m.rpe)); return p.join(' · '); }
   function setLog(h,iso,value){ const m=data.log[h.id]=data.log[h.id]||{}; if(value===false||value==null||value===0) delete m[iso]; else m[iso]=value;
     if(Object.keys(m).length===0) delete data.log[h.id]; }
   function toggleCheck(h,iso){ setLog(h,iso, logVal(h,iso)===true?false:true); }
   function incCount(h,iso,delta){ const cur=(typeof logVal(h,iso)==='number')?logVal(h,iso):0; setLog(h,iso,Math.max(0,cur+delta)); }
   function countInWeek(h,weekStart){ let c=0; const today=todayStr(); for(let i=0;i<7;i++){ const d=addDays(weekStart,i); if(d<=today&&isDoneOn(h,d)) c++; } return c; }
-  /* ---- training sessions ---- */
-  function sessionHabits(){ return data.habits.filter(h=>!h.archived && h.track==='session'); }
-  function sessionAgg(h,days){ const today=todayStr(); let count=0,min=0,dist=0; for(let i=0;i<days;i++){ const s=sessionOf(h,addDays(today,-i)); if(s){ count++; min+=(+s.min||0); dist+=(+s.dist||0); } } return {count,min,dist}; }
-  function allSessions(days){ const today=todayStr(); const out=[]; sessionHabits().forEach(h=>{ for(let i=0;i<days;i++){ const d=addDays(today,-i); const s=sessionOf(h,d); if(s) out.push({habit:h,date:d,s}); } }); return out.sort((a,b)=>b.date.localeCompare(a.date)); }
+  /* ---- training aggregation (habits flagged to track workout metrics) ---- */
+  function workoutHabits(){ return data.habits.filter(h=>!h.archived && h.workout); }
+  function metricAgg(h,days){ const today=todayStr(); let count=0,min=0,dist=0; for(let i=0;i<days;i++){ const m=metricOf(h.id,addDays(today,-i)); if(m){ count++; min+=(+m.min||0); dist+=(+m.dist||0); } } return {count,min,dist}; }
+  function allWorkouts(days){ const today=todayStr(); const out=[]; workoutHabits().forEach(h=>{ for(let i=0;i<days;i++){ const d=addDays(today,-i); const m=metricOf(h.id,d); if(m) out.push({habit:h,date:d,m}); } }); return out.sort((a,b)=>b.date.localeCompare(a.date)); }
   function fmtDur(min){ min=Math.round(+min||0); const h=Math.floor(min/60), m=min%60; return h?(h+'h'+(m?(' '+m+'m'):'')):(m+'m'); }
 
   function currentStreak(h){
@@ -735,14 +755,6 @@ const App = (function () {
       if(isSkipped(h,today)){
         main.title='Rest day — tap to change'; main.onclick=()=>openDay(h.id,today);
         const rp=el('span','restpill on','💤 rest'); rp.title='Rest day — tap to change'; rp.onclick=(e)=>{ e.stopPropagation(); openDay(h.id,today); }; row.appendChild(rp);
-      } else if(h.track==='session'){
-        const s=sessionOf(h,today); const logged=isDoneOn(h,today);
-        if(logged) row.classList.add('done');
-        main.title = logged ? 'Session logged — tap to edit' : 'Tap to log a workout';
-        main.onclick=()=>{ const prev=currentStreak(h); openSession(h,today,prev); };
-        if(logged){ const parts=[]; if(+s.min) parts.push(fmtDur(s.min)); if(+s.dist) parts.push((+s.dist)+(h.unit?(' '+esc(h.unit)):'')); if(+s.rpe) parts.push('RPE '+(+s.rpe));
-          const sm=el('span','sesspill on', parts.join(' · ')||'logged'); sm.title='Tap to edit'; sm.onclick=(e)=>{ e.stopPropagation(); const prev=currentStreak(h); openSession(h,today,prev); }; row.appendChild(sm);
-        } else { const lb=el('button','ghost','＋ Log'); lb.style.cssText='flex:0 0 auto; padding:4px 10px; border-color:'+safeColor(h.color,'var(--accent)')+'; color:'+safeColor(h.color,'var(--accent)')+';'; lb.onclick=(e)=>{ e.stopPropagation(); const prev=currentStreak(h); openSession(h,today,prev); }; row.appendChild(lb); }
       } else if(h.track==='count'){
         const v=(typeof logVal(h,today)==='number')?logVal(h,today):0;
         main.title='Tap to add one '+(h.unit||'')+' · use ✎ to edit';
@@ -769,6 +781,11 @@ const App = (function () {
       wrap.appendChild(miniStrip(h));
       if(h.track==='count' && !isSkipped(h,today)){ const v=(typeof logVal(h,today)==='number')?logVal(h,today):0; const pct=Math.min(100,Math.round(v/(h.goal||1)*100));
         const pb=el('div','pbar','<span style="width:'+pct+'%; background:'+safeColor(h.color,'var(--accent)')+'"></span>'); wrap.appendChild(pb); }
+      // workout habits: show/add distance·time·RPE for today
+      if(h.workout && !isSkipped(h,today)){ const m=metricOf(h.id,today); const has=hasMetric(h.id,today);
+        const pill=el('button','wpill'+(has?' on':''), has ? ('🏋️ '+metricSummary(m,h)) : '🏋️ Add workout stats');
+        pill.title='Log distance / time / RPE for today'; pill.onclick=(e)=>{ e.stopPropagation(); openDay(h.id,today); };
+        wrap.appendChild(pill); }
     });
     return wrap;
   }
@@ -805,7 +822,7 @@ const App = (function () {
         const cell=el('div','cell'+(done?' done':'')+(d===today?' today':'')+(sched?'':' off')+(isSkipped(h,d)?' skip':''));
         if(done) cell.style.background=safeColor(h.color,'var(--success)');
         cell.title=d+(noteFor(h.id,d)?(' — '+noteFor(h.id,d)):'');
-        if(sched){ cell.onclick=()=>{ if(h.track==='session'){ openSession(h,d,currentStreak(h)); return; } if(h.track==='count') setLog(h,d, done?false:(h.goal||1)); else toggleCheck(h,d); persist(); render(); }; }
+        if(sched){ cell.onclick=()=>{ if(h.track==='count') setLog(h,d, done?false:(h.goal||1)); else toggleCheck(h,d); persist(); render(); }; }
         gv.appendChild(cell); }
     });
     wrap.appendChild(gv);
@@ -831,9 +848,9 @@ const App = (function () {
         const r=sumInRange(h,30); const avg=r.activeDays?Math.round(r.sum/r.activeDays):0; const unit=h.unit?(' '+esc(h.unit)):'';
         card.appendChild(el('div','small', monthTotal(h)+unit+' this month · avg '+avg+unit+'/active day'));
         card.appendChild(sparkline(h,14));
-      } else if(h.track==='session'){
-        const a=sessionAgg(h,30), u=h.unit?(' '+esc(h.unit)):'';
-        card.appendChild(el('div','small', a.count+' session'+(a.count===1?'':'s')+' · '+fmtDur(a.min)+(a.dist?(' · '+Math.round(a.dist)+u):'')+' in 30 days'));
+      }
+      if(h.workout){ const a=metricAgg(h,30);
+        card.appendChild(el('div','small', a.count+' workout'+(a.count===1?'':'s')+' · '+fmtDur(a.min)+(a.dist?(' · '+Math.round(a.dist)+' mi'):'')+' in 30 days'));
       }
       const wk=el('div','wk'); const lbl=['M','T','W','T','F','S','S']; const ws=startOfWeek(today);
       for(let i=0;i<7;i++){ const d=addDays(ws,i); const on=(d<=today)&&isDoneOn(h,d); const sp=el('span',on?'on':''); if(on) sp.style.background=safeColor(h.color,'var(--success)'); sp.title=d; wk.appendChild(sp); }
@@ -949,7 +966,7 @@ const App = (function () {
           else if(isSkipped(hbt,dstr)){ cell.classList.add('skip'); }
           else if(sched){ cell.classList.add('sched'); }
           cell.title=dstr+(noteFor(hbt.id,dstr)?(' — '+noteFor(hbt.id,dstr)):'');
-          cell.style.cursor='pointer'; cell.onclick=()=>{ if(hbt.track==='session'){ openSession(hbt,dstr,currentStreak(hbt)); return; } if(hbt.track==='count') setLog(hbt,dstr, done?false:(hbt.goal||1)); else toggleCheck(hbt,dstr); persist(); render(); };
+          cell.style.cursor='pointer'; cell.onclick=()=>{ if(hbt.track==='count') setLog(hbt,dstr, done?false:(hbt.goal||1)); else toggleCheck(hbt,dstr); persist(); render(); };
         } else {
           const act=data.habits.filter(h=>!h.archived); const due=act.filter(h=>dueOnStrict(h,dstr));
           const doneC=due.filter(h=>isDoneOn(h,dstr)).length; const ratio=due.length?doneC/due.length:0;
@@ -1082,10 +1099,21 @@ const App = (function () {
     const restLbl=el('label','small'); restLbl.style.cssText='display:flex; align-items:center; gap:6px; cursor:pointer;';
     const rest=el('input'); rest.type='checkbox'; rest.style.cssText='width:auto; margin:0;'; rest.checked=isSkipped(h,date);
     restLbl.appendChild(rest); restLbl.appendChild(document.createTextNode(' Rest / skip day (won’t break your streak)')); body.appendChild(restLbl);
+    // optional workout stats (only for habits flagged to track them)
+    let dist,mins,rpe;
+    if(h.workout){ const met=metricOf(hid,date)||{};
+      const wrapM=el('div'); wrapM.style.cssText='display:flex; gap:8px;';
+      const mk=(ph,val)=>{ const i=el('input'); i.type='number'; i.min='0'; i.placeholder=ph; if(val) i.value=val; i.style.cssText='width:100%; background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:8px;'; return i; };
+      dist=mk('Distance (mi)', met.dist); mins=mk('Time (min)', met.min); rpe=mk('RPE 1–10', met.rpe); rpe.max='10';
+      const f=(l,i)=>{ const d=el('div','field'); d.style.flex='1'; d.appendChild(el('label',null,l)); d.appendChild(i); return d; };
+      wrapM.appendChild(f('Distance (mi)',dist)); wrapM.appendChild(f('Time (min)',mins)); wrapM.appendChild(f('RPE',rpe));
+      body.appendChild(wrapM);
+    }
     const ta=el('textarea'); ta.style.cssText='width:100%; min-height:90px; background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:8px;'; ta.value=noteFor(hid,date); ta.placeholder='How did it go?'; body.appendChild(ta);
     const foot=el('div','modal-foot'); foot.style.justifyContent='flex-end'; const save=el('button','primary','Save');
     save.onclick=()=>{
       if(rest.checked) setLog(h,date,'skip'); else if(isSkipped(h,date)) setLog(h,date,false);
+      if(h.workout) setMetric(hid,date,{ dist:parseFloat(dist.value)||0, min:parseInt(mins.value,10)||0, rpe:parseInt(rpe.value,10)||0 });
       const v=ta.value.trim(); const m=data.notes[hid]=data.notes[hid]||{}; if(v) m[date]=v; else delete m[date]; if(Object.keys(m).length===0) delete data.notes[hid];
       persist(); ov.remove(); render();
     };
@@ -1093,48 +1121,16 @@ const App = (function () {
     setTimeout(()=>ta.focus(),0); ov.addEventListener('mousedown',e=>{ if(e.target===ov) ov.remove(); });
   }
 
-  /* ---- workout session logging ---- */
-  function openSession(h,date,prevStreak){
-    const s=sessionOf(h,date)||{};
-    const ov=el('div','overlay'); ov.style.display='flex'; ov.style.zIndex='110';
-    const box=el('div','modal'); box.style.maxWidth='420px';
-    const head=el('div','modal-head','<strong style="flex:1">'+esc(h.name)+' · '+esc(date)+'</strong>');
-    const close=el('button','iconbtn','✕'); close.setAttribute('aria-label','Close'); close.onclick=()=>ov.remove(); head.appendChild(close);
-    const body=el('div','modal-body');
-    const mkInput=()=>{ const i=el('input'); i.style.cssText='width:100%; background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:8px;'; return i; };
-    const field=(labelText,inp)=>{ const f=el('div','field'); f.appendChild(el('label',null,labelText)); f.appendChild(inp); return f; };
-    const min=mkInput(); min.type='number'; min.min='0'; min.placeholder='e.g. 45'; if(s.min!=null) min.value=s.min;
-    const dist=mkInput(); dist.type='number'; dist.min='0'; dist.step='any'; dist.placeholder='e.g. 20'; if(s.dist!=null&&s.dist!==0) dist.value=s.dist;
-    const rpe=mkInput(); rpe.type='number'; rpe.min='1'; rpe.max='10'; rpe.placeholder='1–10'; if(s.rpe) rpe.value=s.rpe;
-    const note=el('textarea'); note.style.cssText='width:100%; min-height:70px; background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:8px;'; note.placeholder='How did it go?'; note.value=s.note||'';
-    body.appendChild(field('Duration (minutes)',min));
-    body.appendChild(field('Distance'+(h.unit?(' ('+esc(h.unit)+')'):' (optional)'),dist));
-    body.appendChild(field('Effort — RPE 1–10 (optional)',rpe));
-    body.appendChild(field('Notes',note));
-    const foot=el('div','modal-foot'); foot.style.justifyContent='space-between';
-    const del=el('button','ghost','Clear'); del.onclick=()=>{ setLog(h,date,null); persist(); ov.remove(); render(); };
-    const save=el('button','primary','Save');
-    save.onclick=()=>{
-      const mn=Math.max(0,parseInt(min.value,10)||0), ds=Math.max(0,parseFloat(dist.value)||0), rp=Math.max(0,Math.min(10,parseInt(rpe.value,10)||0)), nt=note.value.trim();
-      if(!mn && !ds && !rp && !nt) setLog(h,date,null); else setLog(h,date,{min:mn,dist:ds,rpe:rp,note:nt});
-      persist(); ov.remove(); render();
-      if(typeof prevStreak==='number'){ const now=currentStreak(h); if(now>prevStreak && MILESTONES.includes(now)) celebrate(h,now); }
-    };
-    foot.appendChild(del); foot.appendChild(save);
-    box.appendChild(head); box.appendChild(body); box.appendChild(foot); ov.appendChild(box); document.body.appendChild(ov);
-    setTimeout(()=>min.focus(),0); ov.addEventListener('mousedown',e=>{ if(e.target===ov) ov.remove(); });
-  }
-
-  /* ---- Training view (aggregates workout-session habits) ---- */
+  /* ---- Training view (aggregates habits that track workout metrics) ---- */
   function renderTraining(){
-    const wrap=el('div','training'); const sh=sessionHabits();
-    if(!sh.length){ wrap.appendChild(el('div','empty','No workout habits yet. Add a habit (＋ Habit), set its tracking to “Log a workout session,” and your sessions will roll up here.')); return wrap; }
+    const wrap=el('div','training'); const sh=workoutHabits();
+    if(!sh.length){ wrap.appendChild(el('div','empty','No workout habits yet. Open a habit → ✎ Edit and tick “Track workout stats,” then log distance / time / RPE from the 📝 button on Today. Your totals roll up here.')); return wrap; }
     const today=todayStr(); const wkStart=startOfWeek(today);
-    const weekVol=(hs)=>{ let m=0,d=0,c=0; sh.forEach(h=>{ for(let i=0;i<7;i++){ const day=addDays(hs,i); if(day>today) break; const s=sessionOf(h,day); if(s){ m+=(+s.min||0); d+=(+s.dist||0); c++; } } }); return {m,d,c}; };
+    const weekVol=(hs)=>{ let m=0,d=0,c=0; sh.forEach(h=>{ for(let i=0;i<7;i++){ const day=addDays(hs,i); if(day>today) break; const s=metricOf(h.id,day); if(s){ m+=(+s.min||0); d+=(+s.dist||0); c++; } } }); return {m,d,c}; };
     const thisWk=weekVol(wkStart), lastWk=weekVol(addDays(wkStart,-7));
     const summary=el('div','tr-summary');
     summary.appendChild(el('div','trs-big', fmtDur(thisWk.m)));
-    summary.appendChild(el('div','small','this week · '+thisWk.c+' session'+(thisWk.c===1?'':'s')+(thisWk.d?(' · '+Math.round(thisWk.d)+' dist'):'')));
+    summary.appendChild(el('div','small','this week · '+thisWk.c+' session'+(thisWk.c===1?'':'s')+(thisWk.d?(' · '+Math.round(thisWk.d)+' mi'):'')));
     const diff=thisWk.m-lastWk.m; const tr=el('div','small'); tr.style.marginTop='2px';
     tr.textContent = lastWk.m ? ((diff>=0?'▲ ':'▼ ')+fmtDur(Math.abs(diff))+' vs last week ('+fmtDur(lastWk.m)+')') : 'First week of training data';
     summary.appendChild(tr); wrap.appendChild(summary);
@@ -1142,18 +1138,18 @@ const App = (function () {
     const maxM=Math.max(1,...weeks.map(x=>x.m));
     wrap.appendChild(el('div','small','Weekly volume (last 6 weeks)'));
     const chart=el('div','tr-weeks');
-    weeks.forEach((x,i)=>{ const col=el('div','tr-week'); const bar=el('div','tr-vbar'); const f=el('span'); f.style.height=Math.max(3,Math.round(x.m/maxM*100))+'%'; bar.appendChild(f); col.appendChild(bar); col.appendChild(el('div','tr-wlbl', x.m?fmtDur(x.m):'–')); col.appendChild(el('div','tr-wlbl2', x.off===0?'now':('-'+x.off+'w'))); chart.appendChild(col); });
+    weeks.forEach((x)=>{ const col=el('div','tr-week'); const bar=el('div','tr-vbar'); const f=el('span'); f.style.height=Math.max(3,Math.round(x.m/maxM*100))+'%'; bar.appendChild(f); col.appendChild(bar); col.appendChild(el('div','tr-wlbl', x.m?fmtDur(x.m):'–')); col.appendChild(el('div','tr-wlbl2', x.off===0?'now':('-'+x.off+'w'))); chart.appendChild(col); });
     wrap.appendChild(chart);
     wrap.appendChild(el('div','small','By activity (this week)'));
-    sh.forEach(h=>{ const a=sessionAgg(h,7); const row=el('div','tr-hrow');
-      row.innerHTML='<span class="tr-hic" style="color:'+safeColor(h.color,'var(--fg)')+'">'+esc(h.icon||'•')+'</span><span class="tr-hname">'+esc(h.name)+'</span><span class="tr-hval">'+fmtDur(a.min)+(a.dist?(' · '+Math.round(a.dist)+(h.unit?(' '+esc(h.unit)):'')):'')+'</span>';
+    sh.forEach(h=>{ const a=metricAgg(h,7); const row=el('div','tr-hrow');
+      row.innerHTML='<span class="tr-hic" style="color:'+safeColor(h.color,'var(--fg)')+'">'+esc(h.icon||'•')+'</span><span class="tr-hname">'+esc(h.name)+'</span><span class="tr-hval">'+fmtDur(a.min)+(a.dist?(' · '+Math.round(a.dist)+' mi'):'')+'</span>';
       wrap.appendChild(row); });
-    const recent=allSessions(45).slice(0,12);
+    const recent=allWorkouts(45).slice(0,12);
     if(recent.length){ wrap.appendChild(el('div','small','Recent sessions'));
-      recent.forEach(r=>{ const parts=[]; if(+r.s.min) parts.push(fmtDur(r.s.min)); if(+r.s.dist) parts.push(Math.round(r.s.dist)+(r.habit.unit?(' '+esc(r.habit.unit)):'')); if(+r.s.rpe) parts.push('RPE '+(+r.s.rpe));
+      recent.forEach(r=>{ const parts=[]; if(+r.m.dist) parts.push(Math.round(r.m.dist)+' mi'); if(+r.m.min) parts.push(fmtDur(r.m.min)); if(+r.m.rpe) parts.push('RPE '+(+r.m.rpe));
         const row=el('div','tr-srow'); row.style.cursor='pointer';
         row.innerHTML='<span class="tr-sic" style="color:'+safeColor(r.habit.color,'var(--fg)')+'">'+esc(r.habit.icon||'•')+'</span><span class="tr-sname">'+esc(r.habit.name)+' <span class="tr-sdate">'+esc(fmtDate(r.date))+'</span></span><span class="tr-sval">'+esc(parts.join(' · '))+'</span>';
-        row.onclick=()=>openSession(r.habit,r.date,currentStreak(r.habit)); wrap.appendChild(row); });
+        row.onclick=()=>openDay(r.habit.id,r.date); wrap.appendChild(row); });
     }
     return wrap;
   }
@@ -1167,6 +1163,7 @@ const App = (function () {
     pickDays=(h.schedule&&h.schedule.days&&h.schedule.days.slice())||[1,2,3,4,5];
     $('#h_target').value=(h.schedule&&h.schedule.target)||3;
     $('#h_track').value=h.track||'check'; $('#h_goal').value=h.goal||1; $('#h_unit').value=h.unit||'';
+    $('#h_workout').checked=!!h.workout;
     $('#h_archive').textContent=h.archived?'Unarchive':'Archive';
     renderIconPick(); renderColorPick(); renderDayPick(); syncSchedFields();
     $('#overlay').classList.add('open'); $('#h_name').focus();
@@ -1176,21 +1173,18 @@ const App = (function () {
   function renderDayPick(){ const box=$('#h_days'); box.innerHTML=''; const lbl=['Su','Mo','Tu','We','Th','Fr','Sa'];
     for(let d=0;d<7;d++){ const b=el('button','dow-btn'+(pickDays.includes(d)?' on':''),lbl[d]); b.onclick=()=>{ if(pickDays.includes(d)) pickDays=pickDays.filter(x=>x!==d); else pickDays.push(d); renderDayPick(); }; box.appendChild(b); } }
   function syncSchedFields(){ const t=$('#h_sched').value; $('#h_daysWrap').style.display=t==='days'?'block':'none'; $('#h_targetWrap').style.display=t==='weekly'?'block':'none';
-    const tr=$('#h_track').value; const count=tr==='count', session=tr==='session';
-    $('#h_goalWrap').style.display=count?'block':'none';
-    $('#h_unitWrap').style.display=(count||session)?'block':'none';
-    const ul=$('#h_unitLabel'); if(ul) ul.textContent = session ? 'Distance unit (optional)' : 'Unit';
-    const ui=$('#h_unit'); if(ui) ui.placeholder = session ? 'km, mi… (blank = time only)' : 'min, pages…'; }
+    const count=$('#h_track').value==='count';
+    $('#h_goalWrap').style.display=count?'block':'none'; $('#h_unitWrap').style.display=count?'block':'none'; }
   function commitEditor(){ if(!editingId) return; const h=data.habits.find(x=>x.id===editingId); if(!h) return;
     h.name=$('#h_name').value.trim()||'Untitled'; h.icon=pickIcon; h.color=pickColor;
     const t=$('#h_sched').value; const sched={type:t}; if(t==='days') sched.days=pickDays.slice().sort(); if(t==='weekly') sched.target=Math.max(1,Math.min(7,parseInt($('#h_target').value,10)||3));
-    h.schedule=sched; h.track=$('#h_track').value; h.goal=Math.max(1,parseInt($('#h_goal').value,10)||1); h.unit=$('#h_unit').value.trim(); persist(); }
+    h.schedule=sched; h.track=$('#h_track').value; h.goal=Math.max(1,parseInt($('#h_goal').value,10)||1); h.unit=$('#h_unit').value.trim(); h.workout=$('#h_workout').checked; persist(); }
   function closeEditor(){ commitEditor(); editingId=null; $('#overlay').classList.remove('open'); render(); }
 
   /* ---- wiring ---- */
   function wire(){
     document.querySelectorAll('#viewSeg button').forEach(b=>{ b.onclick=()=>{ data.ui.view=b.dataset.view; saveOut(); render(); }; });
-    $('#addBtn').onclick=()=>{ const h={ id:id(), name:'New habit', icon:ICONS[Math.floor(Math.random()*ICONS.length)], color:COLORS[data.habits.length%COLORS.length], schedule:{type:'daily'}, track:'check', goal:1, unit:'', archived:false, createdAt:new Date().toISOString() };
+    $('#addBtn').onclick=()=>{ const h={ id:id(), name:'New habit', icon:ICONS[Math.floor(Math.random()*ICONS.length)], color:COLORS[data.habits.length%COLORS.length], schedule:{type:'daily'}, track:'check', goal:1, unit:'', workout:false, archived:false, createdAt:new Date().toISOString() };
       data.habits.push(h); persist(); render(); openEditor(h.id); };
     $('#undoBtn').onclick=undo;
     $('#h_close').onclick=closeEditor; $('#h_save').onclick=closeEditor;
@@ -1243,7 +1237,7 @@ const App = (function () {
   return { start(){ wire(); SNBridge.init({ debounceSave:250, onNote:(text)=>{ standalone=false; load(text); }, onStandalone:()=>{ standalone=true; load(''); } }); },
     _test:{ combinedRate, weeklyRates, dowRates, habitMomentum, coOccur, bestPairing, skipCount, journalStats, historyDays, buildAIExport, currentStreak, longestStreak, completionRate, addDays, todayStr,
       totalXP, levelInfo, totalCompletions, perfectDaysAllTime, earnedAchievements, ensureGamSeed, ACHIEVEMENTS,
-      isDoneOn, setLog, sessionOf, sessionAgg, sessionHabits, allSessions, collectJournal, _set:(d)=>{data=d;} } };
+      isDoneOn, setLog, metricOf, setMetric, metricAgg, workoutHabits, allWorkouts, collectJournal, _set:(d)=>{data=d;} } };
 })();
 
 document.addEventListener('DOMContentLoaded', App.start);
