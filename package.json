@@ -1,0 +1,7 @@
+{
+  "name": "sn-habits",
+  "version": "1.13.0",
+  "private": true,
+  "description": "Habits editor extension for Standard Notes. Version must match ext.json.",
+  "license": "UNLICENSED"
+}
