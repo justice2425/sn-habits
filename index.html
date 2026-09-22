@@ -2,11 +2,20 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<!-- Security hardening: deny by default; allow only the app's own inline code/styles and
-     theme assets. connect-src 'none' blocks all network egress (the app makes none); the SN
-     bridge uses postMessage, which CSP does not restrict. No external scripts, eval, plugins,
-     <base> hijacking, or form submissions are permitted. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https: http: data:; img-src https: http: data: blob:; font-src https: http: data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'" />
+<!-- Security hardening (Content-Security-Policy):
+     - script-src allows ONLY the one inline script element below, by its SHA-256 hash. Injected markup
+       (e.g. an onerror= attribute) can never run, and an edited script won't run until its
+       hash is updated: run tools/update-csp-hash.py (see README → Security).
+     - style-src / font-src / img-src allow only this page's own inline styles, data:/blob: URLs,
+       and the hosts Standard Notes serves its themes from: its web app, and the desktop app's
+       local server. Keep in sync with THEME_HOSTS in the script. Nothing else can be loaded,
+       so nothing can be sent out through image/font/style requests.
+     - connect-src/frame/worker/media/object are all 'none'. The app makes no network requests; the
+       SN bridge uses postMessage, which CSP does not govern (see origin checks in SNBridge).
+     - base-uri and form-action 'none' stop <base> hijacking and form submissions.
+     A meta-tag CSP can't set frame-ancestors; embedding is handled by SNBridge's origin pinning. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-tIVXj0OYdxY2kMfGLO7yzXW8AxPcFzhWJpNyYiLt1ME='; style-src 'unsafe-inline' data: https://app.standardnotes.com http://localhost:* http://127.0.0.1:*; font-src data: https://app.standardnotes.com http://localhost:* http://127.0.0.1:*; img-src data: blob: https://app.standardnotes.com http://localhost:* http://127.0.0.1:*; connect-src 'none'; media-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'" />
+<meta name="referrer" content="no-referrer" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
 <title>Habits</title>
 <style>
@@ -202,6 +211,9 @@
   .restpill.on { color:var(--accent); border-color:var(--accent); }
 
   /* ---- Gamification: level bar (Today) ---- */
+  .rowmenu { position:fixed; z-index:200; background:var(--bg); border:1px solid var(--border); border-radius:10px; box-shadow:0 6px 24px rgba(0,0,0,.18); padding:6px; min-width:170px; }
+  .rowmenu-item { display:block; width:100%; text-align:left; padding:9px 12px; border:none; background:transparent; border-radius:6px; font-size:14px; color:var(--fg); cursor:pointer; }
+  .rowmenu-item:hover { background:var(--panel); }
   .levelbar { display:flex; align-items:center; gap:12px; padding:10px 12px; margin-bottom:14px; position:relative;
     background:var(--panel); border:1px solid var(--border); border-radius:12px; }
   .lv-badge { flex:0 0 auto; width:38px; height:38px; border-radius:50%; display:flex; align-items:center; justify-content:center;
@@ -267,6 +279,8 @@
 </style>
 </head>
 <body>
+<!-- Shown only if the script is blocked (e.g. the CSP script hash wasn't updated after an edit). -->
+<div id="bootFail" style="padding:16px; font:14px/1.4 system-ui, sans-serif;">Habits couldn't start. If you just edited this file, update the script hash in the Content-Security-Policy (see README → Security).</div>
 <div id="app">
   <div class="toolbar">
     <div class="seg" id="viewSeg">
@@ -280,6 +294,7 @@
     <span class="grow"></span>
     <button class="ghost" id="archBtn" style="display:none;">Archived</button>
     <button class="ghost" id="undoBtn" title="Undo (Ctrl/Cmd+Z)">↶ Undo</button>
+    <button class="ghost" id="settingsBtn" title="Settings, export & backup" aria-label="Settings">⚙</button>
     <button class="ghost" id="addBtn">+ Habit</button>
   </div>
   <div class="subhead" id="subhead"></div>
@@ -361,42 +376,215 @@
    component-relay protocol). No build step, no dependencies.
    =========================================================================== */
 const SNBridge = (function () {
-  const Action = { StreamContextItem:'stream-context-item', SaveItems:'save-items',
-    ComponentRegistered:'component-registered', ActivateThemes:'themes', ThemesActivated:'themes-activated', SetComponentData:'set-component-data' };
+  const Action = {
+    StreamContextItem: 'stream-context-item',
+    SaveItems: 'save-items',
+    ComponentRegistered: 'component-registered',
+    ActivateThemes: 'themes',
+    ThemesActivated: 'themes-activated',
+    SetComponentData: 'set-component-data',
+  };
   const API_COMPONENT = 'component';
-  let sessionKey=null, environment=null, platform=null, lastItem=null;
-  const sentMessages=[], queue=[]; let activeThemes=[], onNote=null, saveTimer=null, saveDelay=250, standalone=false;
-  function uuid(){ if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0,v=c==='x'?r:(r&0x3|0x8);return v.toString(16);}); }
-  function isMobile(){ return environment==='mobile'; }
-  function post(action,data,callback){ if(!sessionKey){ queue.push({action,data,callback}); return; }
-    const message={action,data,messageId:uuid(),sessionKey,api:API_COMPONENT};
-    const stored=JSON.parse(JSON.stringify(message)); stored.callback=callback; sentMessages.push(stored);
-    window.parent.postMessage(isMobile()?JSON.stringify(message):message,'*'); }
-  function handle(payload){ if(!payload||!payload.action) return;
-    if(payload.action===Action.ComponentRegistered){ sessionKey=payload.sessionKey; const d=payload.data||{};
-      environment=d.environment; platform=d.platform; const pend=queue.splice(0,queue.length); pend.forEach(m=>post(m.action,m.data,m.callback));
-      activateThemes(d.activeThemeUrls||[]); post(Action.ThemesActivated,{}); post(Action.StreamContextItem,{},onStreamed); return; }
-    if(payload.action===Action.ActivateThemes){ activateThemes((payload.data&&payload.data.themes)||[]); return; }
-    if(!payload.original) return; const idx=sentMessages.findIndex(m=>m.messageId===payload.original.messageId);
-    if(idx===-1) return; const o=sentMessages[idx]; if(o.callback) o.callback(payload.data); }
-  function onStreamed(data){ const item=data&&data.item; if(!item) return; lastItem=item; if(item.isMetadataUpdate) return; if(onNote) onNote(text()); }
-  function text(){ return (lastItem&&lastItem.content&&lastItem.content.text)||''; }
-  function save(newText,previewText){ if(standalone) return; if(!lastItem) return; lastItem.content.text=newText;
-    if(typeof previewText==='string') lastItem.content.preview_plain=previewText; if(saveTimer) clearTimeout(saveTimer); saveTimer=setTimeout(flush,saveDelay); }
-  function flush(){ if(!lastItem) return; const copy=Object.assign({},lastItem); copy.children=null; copy.parent=null; post(Action.SaveItems,{items:[copy]}); }
-  function activateThemes(urls){ if(activeThemes.sort().toString()===urls.slice().sort().toString()) return;
-    Array.from(document.getElementsByClassName('sn-theme')).forEach(el=>el.remove());
-    urls.forEach(url=>{ if(!url) return; const link=document.createElement('link'); link.className='sn-theme'; link.rel='stylesheet'; link.type='text/css'; link.href=url; document.head.appendChild(link); }); activeThemes=urls; }
-  function listen(){ const onMsg=(event)=>{
-      // Only accept messages from the embedding Standard Notes frame; reject stray cross-frame
-      // messages. Mobile may report a null source, which we allow (handle() still validates).
-      if(event.source && event.source!==window.parent) return;
-      let data=event.data; if(typeof data==='string'){ try{data=JSON.parse(data);}catch(e){return;} } handle(data); };
-    window.addEventListener('message',onMsg,false); document.addEventListener('message',onMsg,false); }
-  return { init(opts){ opts=opts||{}; saveDelay=typeof opts.debounceSave==='number'?opts.debounceSave:250; onNote=opts.onNote||null; listen();
-      setTimeout(()=>{ if(!sessionKey){ standalone=true; if(opts.onStandalone) opts.onStandalone(); } },600); },
-    save, flushNow:flush, isStandalone(){return standalone;} };
+
+  let sessionKey = null;
+  let environment = null;
+  let platform = null;
+  let componentData = {};
+  let lastItem = null;            // current NoteContainer
+  const sentMessages = [];        // awaiting replies (messageId -> callback)
+  const queue = [];               // messages sent before registration
+  let activeThemes = [];
+  let onNote = null;              // callback(noteText, meta)
+  let saveTimer = null;
+  let saveDelay = 250;
+  let standalone = false;         // true when not embedded in SN (test harness / direct open)
+  let parentOrigin = null;        // origin of the host that registered us (pinned on first registration)
+  let streamedKey = null;         // session key the note stream was requested under
+  // https hosts whose theme stylesheets we accept (desktop uses http://localhost; mobile uses data: CSS).
+  // Keep in sync with style-src / font-src / img-src in the Content-Security-Policy above.
+  const THEME_HOSTS = ['app.standardnotes.com'];
+
+  function uuid() {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+      const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  }
+  function isMobile() { return environment === 'mobile'; }
+
+  function post(action, data, callback) {
+    if (!sessionKey || parentOrigin === null) { queue.push({ action, data, callback }); return; }
+    const message = { action, data, messageId: uuid(), sessionKey, api: API_COMPONENT };
+    // Keep only what reply routing needs. (Storing a full copy of every message, as the
+    // reference relay does, retains a copy of the whole note, attachments included, on every save.)
+    if (typeof callback === 'function') {
+      sentMessages.push({ messageId: message.messageId, callback });
+      if (sentMessages.length > 200) {   // drop the oldest one-shot entry; never the stream subscription
+        const i = sentMessages.findIndex(m => m.callback !== onStreamed);
+        if (i !== -1) sentMessages.splice(i, 1);
+      }
+    }
+    // Send only to the origin that registered us, never '*', so note contents can't be
+    // delivered to a different page if the parent frame is navigated or replaced.
+    // (Hosts served from file:// or with an opaque origin, which some mobile builds may use,
+    // can't be addressed by origin; only in that case do we fall back to '*', as before.)
+    const target = /^https?:\/\/[^/]+$/i.test(parentOrigin) ? parentOrigin : '*';
+    window.parent.postMessage(isMobile() ? JSON.stringify(message) : message, target);
+  }
+
+  const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+  function handle(payload) {
+    if (!isObj(payload) || typeof payload.action !== 'string') return;
+    if (payload.action === Action.ComponentRegistered) {
+      if (typeof payload.sessionKey !== 'string' || !payload.sessionKey) return;
+      sessionKey = payload.sessionKey;
+      if (isObj(payload.componentData)) componentData = payload.componentData;
+      const d = isObj(payload.data) ? payload.data : {};
+      environment = typeof d.environment === 'string' ? d.environment : null;
+      platform = typeof d.platform === 'string' ? d.platform : null;
+      standalone = false;
+      // flush queue
+      const pending = queue.splice(0, queue.length);
+      pending.forEach(m => post(m.action, m.data, m.callback));
+      activateThemes(Array.isArray(d.activeThemeUrls) ? d.activeThemeUrls : []);
+      post(Action.ThemesActivated, {});
+      // begin streaming the open note (again only if the host re-registers with a new session)
+      if (streamedKey !== sessionKey) {
+        streamedKey = sessionKey;
+        for (let i = sentMessages.length - 1; i >= 0; i--) if (sentMessages[i].callback === onStreamed) sentMessages.splice(i, 1);
+        post(Action.StreamContextItem, {}, onStreamed);
+      }
+      return;
+    }
+    if (payload.action === Action.ActivateThemes) {
+      activateThemes((isObj(payload.data) && Array.isArray(payload.data.themes)) ? payload.data.themes : []);
+      return;
+    }
+    // reply routing: only replies to messages we actually sent are acted on
+    if (!isObj(payload.original) || typeof payload.original.messageId !== 'string') return;
+    const idx = sentMessages.findIndex(m => m.messageId === payload.original.messageId);
+    if (idx === -1) return;
+    const original = sentMessages[idx];
+    if (original.callback !== onStreamed) sentMessages.splice(idx, 1);  // one-shot replies
+    original.callback(payload.data);
+  }
+
+  function onStreamed(data) {
+    const item = isObj(data) ? data.item : null;
+    if (!isObj(item) || !isObj(item.content)) return;
+    if (item.content.text != null && typeof item.content.text !== 'string') return;
+    // A save still waiting on its debounce belongs to the previous item: send it now, before
+    // switching, so an edit made just before changing notes can't be lost or misfiled.
+    if (saveTimer && lastItem && lastItem.uuid !== item.uuid) { clearTimeout(saveTimer); saveTimer = null; flush(); }
+    lastItem = item;
+    if (item.isMetadataUpdate) return;   // skip pure metadata pings
+    if (onNote) onNote(text(), meta());
+  }
+
+  function text() {
+    return (lastItem && lastItem.content && lastItem.content.text) || '';
+  }
+  function meta() {
+    if (lastItem && lastItem.content) {
+      const id = lastItem.content.editorIdentifier;
+      const app = lastItem.content.appData || {};
+      return (id && app[id]) || {};
+    }
+    return {};
+  }
+
+  function save(newText, previewText) {
+    if (standalone) { return; } // nothing to save to when opened directly
+    if (!lastItem) return;
+    lastItem.content.text = newText;
+    if (typeof previewText === 'string') lastItem.content.preview_plain = previewText;
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(flush, saveDelay);
+  }
+  function flush() {
+    if (!lastItem) return;
+    const copy = Object.assign({}, lastItem);
+    copy.children = null; copy.parent = null;
+    post(Action.SaveItems, { items: [copy] });
+  }
+
+  // Theme stylesheets are supplied by the host. Accept only the kinds of URL Standard Notes
+  // actually sends (its own web app, the desktop app's local server, or a base64 CSS data URL
+  // on mobile); the Content-Security-Policy enforces the same list.
+  function isAllowedThemeUrl(u) {
+    if (typeof u !== 'string' || !u || u.length > 2000000) return false;
+    if (/^data:text\/css[;,]/i.test(u)) return true;
+    let p; try { p = new URL(u); } catch (e) { return false; }
+    if (p.username || p.password) return false;
+    if (p.protocol === 'https:' && THEME_HOSTS.includes(p.hostname)) return true;
+    if (p.protocol === 'http:' && (p.hostname === 'localhost' || p.hostname === '127.0.0.1')) return true;
+    return false;
+  }
+  function activateThemes(urls) {
+    urls = urls.filter(isAllowedThemeUrl).slice(0, 10);
+    if (activeThemes.slice().sort().toString() === urls.slice().sort().toString()) return;
+    // remove old
+    Array.from(document.getElementsByClassName('sn-theme')).forEach(el => el.remove());
+    urls.forEach(url => {
+      const link = document.createElement('link');
+      link.className = 'sn-theme'; link.rel = 'stylesheet'; link.type = 'text/css'; link.href = url;
+      document.head.appendChild(link);
+    });
+    activeThemes = urls;
+  }
+
+  function originOf(u) { try { return new URL(u).origin; } catch (e) { return null; } }
+
+  function listen() {
+    const onMsg = (event) => {
+      // Same checks as the official @standardnotes/component-relay, plus a source check:
+      // 1. the sender must be our parent frame (on mobile the source can be null);
+      // 2. if we know who embedded us (document.referrer), the sender must be that origin;
+      // 3. the first 'component-registered' pins the host origin, and every later message
+      //    must come from that same origin.
+      if (event.source && event.source !== window.parent) return;
+      const origin = typeof event.origin === 'string' ? event.origin : '';
+      if (document.referrer) { const ro = originOf(document.referrer); if (ro && ro !== 'null' && ro !== origin) return; }
+      let data = event.data;
+      if (typeof data === 'string') {
+        if (data.length > 50 * 1024 * 1024) return;
+        try { data = JSON.parse(data); } catch (e) { return; }
+      }
+      if (!isObj(data)) return;
+      if (parentOrigin === null) {
+        if (data.action !== Action.ComponentRegistered) return;
+        parentOrigin = origin;
+      } else if (origin !== parentOrigin) return;
+      handle(data);
+    };
+    window.addEventListener('message', onMsg, false);
+    document.addEventListener('message', onMsg, false); // RN/mobile
+  }
+
+  return {
+    init(opts) {
+      opts = opts || {};
+      saveDelay = typeof opts.debounceSave === 'number' ? opts.debounceSave : 250;
+      onNote = opts.onNote || null;
+      listen();
+      // If no registration arrives we are not inside Standard Notes. Standalone (demo) mode is
+      // only allowed when this page is the top-level window: a page opened directly. If some
+      // other site embeds us in a frame and never registers, we do nothing rather than load or
+      // show locally stored data inside someone else's page.
+      setTimeout(() => {
+        if (sessionKey) return;
+        let topLevel = false; try { topLevel = window.top === window.self; } catch (e) { topLevel = false; }
+        if (topLevel) { standalone = true; if (opts.onStandalone) opts.onStandalone(); }
+        else if (opts.onUnregistered) opts.onUnregistered();
+      }, 1500);
+    },
+    save,
+    flushNow: flush,
+    isStandalone() { return standalone; },
+    env() { return environment; },
+  };
 })();
 
 /* ===========================================================================
@@ -417,22 +605,39 @@ const App = (function () {
 
   /* ---- persistence ---- */
   function id(){ return (window.crypto&&crypto.randomUUID)?crypto.randomUUID().slice(0,8):Math.random().toString(36).slice(2,10); }
+  // New boards start empty; the Today view offers one-tap suggestions instead of pre-seeding.
   function defaultData(){
-    const mk = (name,icon,color,workout)=>({ id:id(), name, icon, color, schedule:{type:'daily'}, track:'check', goal:1, unit:'', workout:!!workout, archived:false, createdAt:new Date().toISOString() });
-    return { schema:SCHEMA,
-      habits:[ mk('Cycling','🚴',COLORS[0],true), mk('Off-bike exercise','💪',COLORS[1],true), mk('Reading','📖',COLORS[2]), mk('Writing','✍️',COLORS[3]) ],
-      log:{}, notes:{}, metrics:{}, entries:[], ui:{ view:'today', calZoom:'month' }, gam:{} };
+    return { schema:SCHEMA, habits:[], log:{}, notes:{}, metrics:{}, entries:[],
+      ui:{ view:'today', calZoom:'month' }, gam:{},
+      settings:{ unit:'mi', weekStart:1, celebrate:true } };
   }
+  const SUGGESTED=[ ['Cycling','🚴',0,true],['Exercise','💪',1,true],['Running','🏃',4,true],['Reading','📖',2,false],['Writing','✍️',3,false],['Meditate','🧘',5,false],['Water','💧',6,false] ];
+  function addSuggested(s){ data.habits.push({ id:id(), name:s[0], icon:s[1], color:COLORS[s[2]], schedule:{type:'daily'}, track:'check', goal:1, unit:'', workout:!!s[3], archived:false, createdAt:new Date().toISOString() }); persist(); render(); }
+  // per-board settings (units, week start, celebration pop-ups)
+  function settings(){ return (data&&data.settings)||{ unit:'mi', weekStart:1, celebrate:true }; }
+  function distUnit(){ return settings().unit==='km'?'km':'mi'; }
+  function weekStart(){ return settings().weekStart===0?0:1; }
   // names that suggest a physical activity — auto-enable workout metrics on first upgrade
   const WORKOUT_RE = /bike|cycl|run|jog|walk|swim|exercise|workout|gym|lift|weight|row|yoga|pilates|hike|sport|training|cardio|stretch/i;
-  function load(text){
+  function boardFromText(text){
     let parsed=null; if(text&&text.trim()){ try{parsed=JSON.parse(text);}catch(e){parsed=null;} }
-    if(!parsed||!Array.isArray(parsed.habits)) data=defaultData(); else data=migrate(parsed);
-    if(standalone){ try{ const s=localStorage.getItem('sn-habits-standalone'); if(s) data=migrate(JSON.parse(s)); }catch(e){} }
+    if(parsed&&Array.isArray(parsed.habits)) return migrate(parsed);
+    const d=migrate(defaultData());
+    // A note that isn't a Habits board (e.g. existing plain text) — keep its text as a journal
+    // entry rather than replacing it, so switching a note to this editor never loses content.
+    if(text&&text.trim()){ d.entries.push({ id:id(), date:todayStr(), text:String(text).slice(0,100000), mood:0, prompt:'Original note text (kept by Habits)' }); }
+    return d;
+  }
+  function load(text){
+    data=boardFromText(typeof text==='string'?text:'');
+    if(standalone){ try{ const s=localStorage.getItem('sn-habits-standalone'); if(s) data=boardFromText(s); }catch(e){} }
     ensureGamSeed();
     lastSerialized=JSON.stringify(data); undoStack.length=0; healthDismissed=false; render();
   }
-  function migrate(d){ d.schema=d.schema||1; d.habits=d.habits||[]; d.log=d.log||{}; d.notes=d.notes||{}; d.ui=d.ui||{view:'today'};
+  function migrate(d){ if(!d||typeof d!=='object'||Array.isArray(d)) d={}; d.schema=d.schema||1;
+    d.habits=(Array.isArray(d.habits)?d.habits:[]).filter(h=>h&&typeof h==='object'&&!Array.isArray(h));
+    if(!d.log||typeof d.log!=='object') d.log={}; if(!d.notes||typeof d.notes!=='object') d.notes={};
+    d.ui=(d.ui&&typeof d.ui==='object'&&!Array.isArray(d.ui))?d.ui:{view:'today'};
     // Grid/Month/Year merged into one Calendar view with a zoom toggle
     if(['grid','month','year'].includes(d.ui.view)){ d.ui.calZoom=d.ui.view; d.ui.view='calendar'; }
     if(!d.ui.calZoom) d.ui.calZoom='month';
@@ -446,7 +651,42 @@ const App = (function () {
           lg[date]=true; } }); }
       // first upgrade: auto-enable workout metrics for activity-sounding habits
       if(typeof h.workout==='undefined') h.workout = WORKOUT_RE.test(h.name||''); });
-    d.gam = d.gam || {}; if(!Array.isArray(d.entries)) d.entries=[]; return d; }
+    d.gam = d.gam || {}; if(!Array.isArray(d.entries)) d.entries=[]; return tidy(d); }
+  // Keep the loaded data well-formed so later code can't crash or loop over bad values.
+  // Dates are kept only when they are real yyyy-mm-dd within a sensible range; ids/names/colours
+  // are coerced to safe strings. A note that has been hand-edited or restored can't take the app down.
+  const DKEY=/^\d{4}-\d{2}-\d{2}$/, MIND='1970-01-01', MAXD='2100-12-31', HEXOK=/^#[0-9a-fA-F]{6}$/;
+  const goodDate=k=>typeof k==='string'&&DKEY.test(k)&&k>=MIND&&k<=MAXD&&!isNaN(new Date(k+'T00:00:00'));
+  const goodId=v=>typeof v==='string'&&/^[A-Za-z0-9_-]{1,64}$/.test(v)&&v!=='__proto__'&&v!=='constructor'&&v!=='prototype';
+  const nInt=(v,lo,hi,d)=>{ const n=Math.round(Number(v)); return Number.isFinite(n)?Math.min(hi,Math.max(lo,n)):d; };
+  function pickDateMap(src,valueFn){ const out=Object.create(null); if(src&&typeof src==='object') Object.keys(src).forEach(k=>{ if(goodDate(k)){ const v=valueFn(src[k]); if(v!==undefined) out[k]=v; } }); return Object.keys(out).length?out:undefined; }
+  function tidy(d){
+    const ids=new Set();
+    d.habits=(Array.isArray(d.habits)?d.habits:[]).filter(h=>h&&typeof h==='object'&&!Array.isArray(h)).slice(0,2000).map(h=>{
+      if(!goodId(h.id)||ids.has(h.id)) h.id=id(); ids.add(h.id);
+      h.name=(typeof h.name==='string'?h.name:'').slice(0,500)||'Untitled';
+      h.icon=(typeof h.icon==='string'?h.icon:'').slice(0,16);
+      if(!HEXOK.test(h.color||'')) h.color=COLORS[0];
+      h.track=(h.track==='count')?'count':'check';
+      h.goal=nInt(h.goal,1,1000000,1); h.unit=(typeof h.unit==='string'?h.unit:'').slice(0,60);
+      h.workout=!!h.workout; h.archived=!!h.archived;
+      const s=(h.schedule&&typeof h.schedule==='object')?h.schedule:{}; const type=['daily','days','weekly'].includes(s.type)?s.type:'daily';
+      h.schedule=type==='days'?{type,days:Array.from(new Set((Array.isArray(s.days)?s.days:[]).map(x=>nInt(x,0,6,-1)).filter(x=>x>=0)))}
+        :type==='weekly'?{type,target:nInt(s.target,1,7,3)}:{type:'daily'};
+      if(typeof h.createdAt!=='string'||h.createdAt.length>40) h.createdAt=new Date().toISOString();
+      return h;
+    });
+    const live=new Set(d.habits.map(h=>h.id));
+    const byId=(src,valueFn)=>{ const out=Object.create(null); if(src&&typeof src==='object') Object.keys(src).forEach(hid=>{ if(!live.has(hid)) return; const m=pickDateMap(src[hid],valueFn); if(m) out[hid]=m; }); return out; };
+    d.log=byId(d.log,v=>{ if(v===true) return true; if(v==='skip') return 'skip'; if(typeof v==='number'&&isFinite(v)) return v; return undefined; });
+    d.notes=byId(d.notes,v=>typeof v==='string'?v:undefined);
+    d.metrics=byId(d.metrics,v=>{ if(!v||typeof v!=='object') return undefined; const o={dist:Number(v.dist)||0,min:Number(v.min)||0,rpe:Number(v.rpe)||0}; return (o.dist||o.min||o.rpe)?o:undefined; });
+    d.entries=(Array.isArray(d.entries)?d.entries:[]).filter(e=>e&&typeof e==='object'&&goodDate(e.date)&&typeof e.text==='string').slice(0,100000)
+      .map(e=>({ id:goodId(e.id)?e.id:id(), date:e.date, text:e.text, mood:nInt(e.mood,0,5,0), prompt:(typeof e.prompt==='string'?e.prompt:'').slice(0,500) }));
+    const st=(d.settings&&typeof d.settings==='object'&&!Array.isArray(d.settings))?d.settings:{};
+    d.settings={ unit:st.unit==='km'?'km':'mi', weekStart:st.weekStart===0?0:1, celebrate:st.celebrate!==false };
+    return d;
+  }
   function saveOut(){ const t=JSON.stringify(data); lastSerialized=t; if(standalone){ try{localStorage.setItem('sn-habits-standalone',t);}catch(e){} return; } SNBridge.save(t, previewText()); }
   function persist(){ dirty=true; if(lastSerialized!==null){ const cur=JSON.stringify(data); if(cur!==lastSerialized){ undoStack.push(lastSerialized); if(undoStack.length>60) undoStack.shift(); } } saveOut(); }
   function undo(){ if(!undoStack.length) return; data=migrate(JSON.parse(undoStack.pop())); saveOut(); render(); }
@@ -456,6 +696,10 @@ const App = (function () {
   /* ---- note-size guardrail (this note holds all your history) ---- */
   function noteBytes(){ try{ return new Blob([JSON.stringify(data)]).size; }catch(e){ return JSON.stringify(data).length; } }
   function humanBytes(b){ b=b||0; return b<1024?b+' B':b<1048576?(b/1024).toFixed(0)+' KB':(b/1048576).toFixed(1)+' MB'; }
+  function renderStandaloneBanner(){ const old=document.getElementById('demoBanner'); if(old) old.remove(); if(!standalone) return;
+    const b=el('div'); b.id='demoBanner'; b.style.cssText='margin:8px 14px 0; padding:8px 12px; border-radius:8px; border:1px solid var(--danger); background:color-mix(in srgb, var(--danger) 12%, transparent); font-size:13px;';
+    b.textContent='🧪 Demo mode: opened outside Standard Notes, so data is saved unencrypted in this browser, not in an encrypted note.';
+    const s=$('#surface'); s.parentNode.insertBefore(b,s); }
   function renderHealthBanner(){ const old=document.getElementById('healthBanner'); if(old) old.remove(); if(healthDismissed) return;
     const bytes=noteBytes(); if(bytes<NOTE_WARN_BYTES) return;
     const b=el('div'); b.id='healthBanner'; b.style.cssText='display:flex; align-items:center; gap:10px; margin:8px 14px 0; padding:8px 12px; border-radius:8px; border:1px solid var(--danger); background:color-mix(in srgb, var(--danger) 12%, transparent); font-size:13px;';
@@ -467,7 +711,10 @@ const App = (function () {
   function todayStr(){ const d=new Date(); d.setHours(0,0,0,0); return toISODate(d); }
   function toISODate(d){ const z=new Date(d.getTime()-d.getTimezoneOffset()*60000); return z.toISOString().slice(0,10); }
   function addDays(iso,n){ const d=new Date(iso+'T00:00:00'); d.setDate(d.getDate()+n); return toISODate(d); }
-  function startOfWeek(iso){ const d=new Date(iso+'T00:00:00'); const off=(d.getDay()+6)%7; d.setDate(d.getDate()-off); return toISODate(d); } // Monday
+  function startOfWeek(iso){ const d=new Date(iso+'T00:00:00'); const off=weekStart()===0?d.getDay():((d.getDay()+6)%7); d.setDate(d.getDate()-off); return toISODate(d); }
+  // weekday index 0..6 counting from the chosen week start (for calendar/stats headers)
+  function dowIndex(iso){ const g=new Date(iso+'T00:00:00').getDay(); return weekStart()===0?g:((g+6)%7); }
+  function dowLabels(fmt){ const mon=['Mo','Tu','We','Th','Fr','Sa','Su'], sun=['Su','Mo','Tu','We','Th','Fr','Sa']; const base=weekStart()===0?sun:mon; return fmt==='1'?base.map(x=>x[0]):base; }
   function fmtDate(iso){ return new Date(iso+'T00:00:00').toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'}); }
 
   /* ---- habit logic ---- */
@@ -482,7 +729,7 @@ const App = (function () {
     const clean = obj && ((+obj.dist>0)||(+obj.min>0)||(+obj.rpe>0)) ? {dist:+obj.dist||0, min:+obj.min||0, rpe:+obj.rpe||0} : null;
     if(clean) m[iso]=clean; else delete m[iso]; if(Object.keys(m).length===0) delete data.metrics[hid]; }
   function hasMetric(hid,iso){ const m=metricOf(hid,iso); return !!(m && ((+m.dist>0)||(+m.min>0)||(+m.rpe>0))); }
-  function metricSummary(m,h){ if(!m) return ''; const p=[]; if(+m.dist) p.push((+m.dist)+' mi'); if(+m.min) p.push(fmtDur(m.min)); if(+m.rpe) p.push('RPE '+(+m.rpe)); return p.join(' · '); }
+  function metricSummary(m,h){ if(!m) return ''; const p=[]; if(+m.dist) p.push(distStr(m.dist)); if(+m.min) p.push(fmtDur(m.min)); if(+m.rpe) p.push('RPE '+(+m.rpe)); return p.join(' · '); }
   function setLog(h,iso,value){ const m=data.log[h.id]=data.log[h.id]||{}; if(value===false||value==null||value===0) delete m[iso]; else m[iso]=value;
     if(Object.keys(m).length===0) delete data.log[h.id]; }
   function toggleCheck(h,iso){ setLog(h,iso, logVal(h,iso)===true?false:true); }
@@ -492,6 +739,9 @@ const App = (function () {
   function workoutHabits(){ return data.habits.filter(h=>!h.archived && h.workout); }
   function metricAgg(h,days){ const today=todayStr(); let count=0,min=0,dist=0; for(let i=0;i<days;i++){ const m=metricOf(h.id,addDays(today,-i)); if(m){ count++; min+=(+m.min||0); dist+=(+m.dist||0); } } return {count,min,dist}; }
   function allWorkouts(days){ const today=todayStr(); const out=[]; workoutHabits().forEach(h=>{ for(let i=0;i<days;i++){ const d=addDays(today,-i); const m=metricOf(h.id,d); if(m) out.push({habit:h,date:d,m}); } }); return out.sort((a,b)=>b.date.localeCompare(a.date)); }
+  const MI2KM=1.60934;
+  function distDisp(mi){ mi=+mi||0; const v=distUnit()==='km'?mi*MI2KM:mi; return v; }
+  function distStr(mi,round){ const v=distDisp(mi); const r=round?Math.round(v):Math.round(v*100)/100; return r+' '+distUnit(); }
   function fmtDur(min){ min=Math.round(+min||0); const h=Math.floor(min/60), m=min%60; return h?(h+'h'+(m?(' '+m+'m'):'')):(m+'m'); }
   function allTimeTotals(){ let count=0,min=0,dist=0; Object.keys(data.metrics||{}).forEach(hid=>{ const mm=data.metrics[hid]||{}; Object.keys(mm).forEach(dt=>{ const m=mm[dt]; if(m&&((+m.dist>0)||(+m.min>0))){ count++; min+=(+m.min||0); dist+=(+m.dist||0); } }); }); return {count,min,dist}; }
 
@@ -647,7 +897,7 @@ const App = (function () {
     newly.filter(a=>!a.quiet).forEach(a=>queue.push({ type:'ach', ach:a }));
     showRewards(queue);
   }
-  function showRewards(queue){ if(!queue.length) return; let i=0; const next=()=>{ if(i>=queue.length) return; rewardModal(queue[i++], next); }; next(); }
+  function showRewards(queue){ if(!queue.length||!settings().celebrate) return; let i=0; const next=()=>{ if(i>=queue.length) return; rewardModal(queue[i++], next); }; next(); }
   function rewardModal(it, done){
     const ov=el('div','overlay'); ov.style.display='flex'; ov.style.zIndex='130';
     const box=el('div','modal reward'); const icon= it.type==='level' ? '⬆️' : it.ach.icon;
@@ -686,7 +936,7 @@ const App = (function () {
     return { sched, done, rate: sched?Math.round(done/sched*100):null }; }
   function weeklyRates(nWeeks){ const arr=[]; for(let w=0;w<nWeeks;w++) arr.push(combinedRate(w*7,7)); return arr.reverse(); }
   function dowRates(nDays){ const today=todayStr(); const b=Array.from({length:7},()=>({sched:0,done:0})); const act=activeHabits();
-    for(let i=0;i<nDays;i++){ const d=addDays(today,-i); const dow=(new Date(d+'T00:00:00').getDay()+6)%7;
+    for(let i=0;i<nDays;i++){ const d=addDays(today,-i); const dow=dowIndex(d);
       act.forEach(h=>{ if(scheduledOn(h,d)&&!isSkipped(h,d)){ b[dow].sched++; if(isDoneOn(h,d)) b[dow].done++; } }); }
     return b.map(x=>({sched:x.sched,done:x.done,rate:x.sched?Math.round(x.done/x.sched*100):null})); }
   function rateBack(h,fromOffset,len){ const today=todayStr(); let s=0,dn=0; for(let i=0;i<len;i++){ const d=addDays(today,-(fromOffset+i)); if(scheduledOn(h,d)&&!isSkipped(h,d)){ s++; if(isDoneOn(h,d)) dn++; } } return s?Math.round(dn/s*100):null; }
@@ -737,6 +987,23 @@ const App = (function () {
   const $=s=>document.querySelector(s);
   const el=(tag,cls,html)=>{ const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
   const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  // Build the "All habits + each habit" dropdown with DOM nodes, so a habit name or id
+  // is set as text/value and is never parsed as HTML.
+  // small popover menu anchored to a button
+  function rowMenu(anchor,items){
+    document.querySelectorAll('.rowmenu').forEach(m=>m.remove());
+    const m=el('div','rowmenu');
+    items.forEach(it=>{ const b=el('button','rowmenu-item'); b.textContent=it.label; b.onclick=()=>{ m.remove(); it.onClick(); }; m.appendChild(b); });
+    document.body.appendChild(m);
+    const r=anchor.getBoundingClientRect(); let left=Math.min(r.left, window.innerWidth-m.offsetWidth-8); if(left<8) left=8;
+    let top=r.bottom+4; if(top+m.offsetHeight>window.innerHeight-8) top=Math.max(8,r.top-m.offsetHeight-4);
+    m.style.left=left+'px'; m.style.top=top+'px';
+    const off=(e)=>{ if(!m.contains(e.target)&&e.target!==anchor){ m.remove(); document.removeEventListener('mousedown',off); } };
+    setTimeout(()=>document.addEventListener('mousedown',off),0);
+  }
+  function fillHabitSelect(sel){ sel.innerHTML='';
+    const first=document.createElement('option'); first.value=''; first.textContent='All habits'; sel.appendChild(first);
+    data.habits.filter(h=>!h.archived).forEach(h=>{ const o=document.createElement('option'); o.value=String(h.id); o.textContent=String(h.name); sel.appendChild(o); }); }
   // Only allow a hex color or a CSS var into style attributes / properties. Blocks
   // anything injected via a hand-edited note (e.g. a value that breaks out of the attribute).
   function safeColor(c,fallback){ c=String(c==null?'':c); return (/^#[0-9a-fA-F]{3,8}$/.test(c)||/^var\(--[a-zA-Z0-9-]+\)$/.test(c))?c:(fallback||'var(--accent)'); }
@@ -754,6 +1021,7 @@ const App = (function () {
     const arch=data.habits.filter(h=>h.archived); const ab=$('#archBtn');
     if(ab){ if(arch.length){ ab.style.display=''; ab.textContent='Archived ('+arch.length+')'; } else ab.style.display='none'; }
     lastRenderDay = today;
+    renderStandaloneBanner();
     renderHealthBanner();
     const s=$('#surface'); s.innerHTML='';
     if(data.ui.view==='calendar') s.appendChild(renderCalendar());
@@ -794,7 +1062,12 @@ const App = (function () {
   function renderToday(){
     const wrap=el('div','todayview'); const today=todayStr();
     const act=data.habits.filter(h=>!h.archived);
-    if(!act.length){ wrap.appendChild(el('div','empty','No habits yet. Use “+ Habit” to add one.')); return wrap; }
+    if(!act.length){
+      const box=el('div','empty'); box.appendChild(el('div',null,'No habits yet — start with a suggestion, or use “+ Habit”.'));
+      const chips=el('div'); chips.style.cssText='display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin-top:12px;';
+      SUGGESTED.forEach(sg=>{ const b=el('button','ghost', sg[1]+' '+sg[0]); b.style.cssText='padding:6px 12px; border-radius:999px;'; b.onclick=()=>addSuggested(sg); chips.appendChild(b); });
+      box.appendChild(chips); wrap.appendChild(box); return wrap;
+    }
     // gamification: level + XP bar, with a brief +XP flash when it grows
     const xpNow=totalXP(); const gain=(lastXPSeen!=null && xpNow>lastXPSeen) ? (xpNow-lastXPSeen) : 0; lastXPSeen=xpNow;
     const lb=levelBar(); if(gain>0) lb.appendChild(el('span','lv-gain','+'+gain+' XP')); wrap.appendChild(lb);
@@ -813,13 +1086,15 @@ const App = (function () {
       const streak=currentStreak(h); const risky=atRisk(h);
       const sb=el('span','streak'+(risky?' risk':''),'🔥 '+streak); sb.title=risky?'Do it today to keep your streak':'Current streak';
       if(streak>0) row.appendChild(sb);
-      const eb=el('button','ghost','✎'); eb.title='Edit / rename / delete this habit'; eb.style.cssText='flex:0 0 auto; padding:3px 8px;';
-      eb.onclick=(e)=>{ e.stopPropagation(); openEditor(h.id); }; row.appendChild(eb);
+      // Edit + Note/Rest tucked into one ⋯ menu so tapping the habit stays the obvious action.
       const hasNote=!!noteFor(h.id,today);
-      const nb=el('button','ghost', hasNote ? '● Note' : 'Note');
-      nb.title = hasNote ? "Edit today's note / rest day" : 'Add a note or mark a rest day';
-      nb.style.cssText = 'flex:0 0 auto; padding:3px 8px;' + (hasNote ? ' border-color:var(--accent); color:var(--accent);' : '');
-      nb.onclick=(e)=>{ e.stopPropagation(); openDay(h.id,today); }; row.appendChild(nb);
+      const mb=el('button','ghost', hasNote ? '●' : '⋯'); mb.setAttribute('aria-label','More actions');
+      mb.title='Edit, note or rest day'; mb.style.cssText='flex:0 0 auto; padding:3px 10px;'+(hasNote?' color:var(--accent);':'');
+      mb.onclick=(e)=>{ e.stopPropagation(); rowMenu(mb,[
+        { label:'✎ Edit habit', onClick:()=>openEditor(h.id) },
+        { label:(hasNote?'📝 Edit note':'📝 Add note'), onClick:()=>openDay(h.id,today) },
+        { label:(isSkipped(h,today)?'✓ Clear rest day':'💤 Mark rest day'), onClick:()=>{ if(isSkipped(h,today)) setLog(h,today,false); else setLog(h,today,'skip'); persist(); render(); } }
+      ]); }; row.appendChild(mb);
       const celebrateIf=(prev)=>{ const now=currentStreak(h); if(now>prev && MILESTONES.includes(now)) celebrate(h,now); };
       // Tap the habit name/icon to log it — the biggest target does the most common action.
       if(isSkipped(h,today)){
@@ -831,7 +1106,7 @@ const App = (function () {
         main.onclick=()=>{ const prev=currentStreak(h); incCount(h,today,1); persist(); render(); celebrateIf(prev); };
         const c=el('div','counter');
         const minus=el('button',null,'−'); minus.onclick=(e)=>{ e.stopPropagation(); incCount(h,today,-1); persist(); render(); };
-        const val=el('span','val', v+' / '+(h.goal||1)+(h.unit?(' '+esc(h.unit)):''));
+        const val=el('span','val', esc(v+' / '+(h.goal||1)+(h.unit?(' '+h.unit):'')));
         const plus=el('button',null,'+'); plus.onclick=(e)=>{ e.stopPropagation(); const prev=currentStreak(h); incCount(h,today,1); persist(); render(); celebrateIf(prev); };
         c.appendChild(minus); c.appendChild(val); c.appendChild(plus); row.appendChild(c);
       } else {
@@ -883,8 +1158,8 @@ const App = (function () {
     if(!act.length){ wrap.appendChild(el('div','empty','No habits yet.')); return wrap; }
     const gv=el('div','gridv'); gv.style.gridTemplateColumns='max-content repeat('+DAYS+', 18px)';
     gv.appendChild(el('div','glabel gdow',''));
-    const DOW=['M','T','W','T','F','S','S'];
-    for(let i=DAYS-1;i>=0;i--){ const d=addDays(today,-i); const dow=(new Date(d+'T00:00:00').getDay()+6)%7; gv.appendChild(el('div','gdow',DOW[dow])); }
+    const DOW=dowLabels('1');
+    for(let i=DAYS-1;i>=0;i--){ const d=addDays(today,-i); gv.appendChild(el('div','gdow',DOW[dowIndex(d)])); }
     act.forEach(h=>{
       const lbl=el('div','glabel'); lbl.innerHTML='<span style="color:'+safeColor(h.color,'var(--fg)')+'">'+esc(h.icon||'•')+'</span> '+esc(h.name);
       lbl.style.cursor='pointer'; lbl.onclick=()=>openEditor(h.id); gv.appendChild(lbl);
@@ -920,9 +1195,9 @@ const App = (function () {
         card.appendChild(sparkline(h,14));
       }
       if(h.workout){ const a=metricAgg(h,30);
-        card.appendChild(el('div','small', a.count+' workout'+(a.count===1?'':'s')+' · '+fmtDur(a.min)+(a.dist?(' · '+Math.round(a.dist)+' mi'):'')+' in 30 days'));
+        card.appendChild(el('div','small', a.count+' workout'+(a.count===1?'':'s')+' · '+fmtDur(a.min)+(a.dist?(' · '+distStr(a.dist,true)):'')+' in 30 days'));
       }
-      const wk=el('div','wk'); const lbl=['M','T','W','T','F','S','S']; const ws=startOfWeek(today);
+      const wk=el('div','wk'); const lbl=dowLabels('1'); const ws=startOfWeek(today);
       for(let i=0;i<7;i++){ const d=addDays(ws,i); const on=(d<=today)&&isDoneOn(h,d); const sp=el('span',on?'on':''); if(on) sp.style.background=safeColor(h.color,'var(--success)'); sp.title=d; wk.appendChild(sp); }
       card.appendChild(el('div','small','This week')); card.appendChild(wk);
       const hm=highestMilestone(currentStreak(h)); if(hm) card.appendChild(el('div','medal','🏅 '+hm+'-day milestone reached'));
@@ -962,10 +1237,10 @@ const App = (function () {
 
     // C) day-of-week
     const dw=dowRates(56); const haveDw=dw.filter(x=>x.rate!=null).length;
-    if(haveDw>=4){ const s=el('div','ins-card'); s.appendChild(el('h4',null,'Best & worst days')); const names=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+    if(haveDw>=4){ const s=el('div','ins-card'); s.appendChild(el('h4',null,'Best & worst days')); const nAll=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']; const names=Array.from({length:7},(_,i)=>nAll[(i+(weekStart()===0?0:1))%7]);
       let bi=-1,wi=-1; dw.forEach((x,i)=>{ if(x.rate==null) return; if(bi<0||x.rate>dw[bi].rate) bi=i; if(wi<0||x.rate<dw[wi].rate) wi=i; });
       if(bi>=0&&wi>=0&&bi!==wi) s.appendChild(el('div','small','Strongest on <strong>'+names[bi]+'</strong> ('+dw[bi].rate+'%), weakest on <strong>'+names[wi]+'</strong> ('+dw[wi].rate+'%).'));
-      const lab=['M','T','W','T','F','S','S']; dw.forEach((x,i)=>{ const row=el('div','ins-row'); row.appendChild(el('div','ins-rlbl',lab[i])); const b=ibar(x.rate,'var(--accent)'); if(i===bi) b.firstChild.style.background='var(--success)'; if(i===wi) b.firstChild.style.background='var(--warning)'; row.appendChild(b); row.appendChild(el('div','ins-rval', x.rate==null?'–':x.rate+'%')); s.appendChild(row); }); wrap.appendChild(s); }
+      const lab=dowLabels('1'); dw.forEach((x,i)=>{ const row=el('div','ins-row'); row.appendChild(el('div','ins-rlbl',lab[i])); const b=ibar(x.rate,'var(--accent)'); if(i===bi) b.firstChild.style.background='var(--success)'; if(i===wi) b.firstChild.style.background='var(--warning)'; row.appendChild(b); row.appendChild(el('div','ins-rval', x.rate==null?'–':x.rate+'%')); s.appendChild(row); }); wrap.appendChild(s); }
 
     // D) per-habit momentum
     const s4=el('div','ins-card'); s4.appendChild(el('h4',null,'Per-habit momentum (14d vs prior 14d)'));
@@ -1021,11 +1296,11 @@ const App = (function () {
     const prev=el('button','iconbtn','◀'); prev.title='Previous month'; prev.onclick=()=>{ monthOffset--; render(); };
     const next=el('button','iconbtn','▶'); next.title='Next month'; if(monthOffset>=0){ next.disabled=true; next.style.opacity='.35'; } next.onclick=()=>{ if(monthOffset<0){ monthOffset++; render(); } };
     const title=el('div','month-title', base.toLocaleDateString(undefined,{month:'long',year:'numeric'}));
-    const sel=el('select'); sel.innerHTML='<option value="">All habits</option>'+data.habits.filter(h=>!h.archived).map(h=>'<option value="'+h.id+'">'+esc(h.name)+'</option>').join(''); sel.value=monthHabit; sel.onchange=()=>{ monthHabit=sel.value; render(); };
+    const sel=el('select'); fillHabitSelect(sel); sel.value=monthHabit; sel.onchange=()=>{ monthHabit=sel.value; render(); };
     hd.appendChild(prev); hd.appendChild(title); hd.appendChild(next); hd.appendChild(sel); wrap.appendChild(hd);
     const grid=el('div','cal');
-    ['Mo','Tu','We','Th','Fr','Sa','Su'].forEach(l=>grid.appendChild(el('div','cal-dow',l)));
-    const firstDow=(new Date(year,mon,1).getDay()+6)%7;
+    dowLabels().forEach(l=>grid.appendChild(el('div','cal-dow',l)));
+    const firstDow=dowIndex(toISODate(new Date(year,mon,1)));
     for(let i=0;i<firstDow;i++) grid.appendChild(el('div','cal-cell empty'));
     const daysInMonth=new Date(year,mon+1,0).getDate();
     const hbt = monthHabit ? data.habits.find(h=>h.id===monthHabit) : null;
@@ -1059,7 +1334,7 @@ const App = (function () {
   function renderYear(){
     const wrap=el('div'); const today=todayStr();
     const hd=el('div','month-head'); hd.appendChild(el('div','month-title','Past year'));
-    const sel=el('select'); sel.innerHTML='<option value="">All habits</option>'+data.habits.filter(h=>!h.archived).map(h=>'<option value="'+h.id+'">'+esc(h.name)+'</option>').join(''); sel.value=monthHabit; sel.onchange=()=>{ monthHabit=sel.value; render(); };
+    const sel=el('select'); fillHabitSelect(sel); sel.value=monthHabit; sel.onchange=()=>{ monthHabit=sel.value; render(); };
     hd.appendChild(sel); wrap.appendChild(hd);
     const yw=el('div','year-wrap'); const yr=el('div','year');
     const WEEKS=53; const start=startOfWeek(addDays(today,-7*(WEEKS-1)));
@@ -1148,14 +1423,15 @@ const App = (function () {
     MOODS.forEach(m=>{ const b=el('button','jmood-b'+(chosen===m.v?' on':''),m.e); b.type='button'; b.onclick=()=>{ chosen=(chosen===m.v?0:m.v); [...moodRow.children].forEach(c=>c.classList.remove('on')); if(chosen) b.classList.add('on'); }; moodRow.appendChild(b); });
     body.appendChild(moodRow);
     const foot=el('div','modal-foot'); foot.style.justifyContent='space-between';
-    const del=el('button','ghost','Delete'); del.onclick=()=>{ data.entries=data.entries.filter(x=>x.id!==eid); persist(); ov.remove(); render(); };
-    const save=el('button','primary','Save'); save.onclick=()=>{ const t=ta.value.trim(); if(!t){ data.entries=data.entries.filter(x=>x.id!==eid); } else { e.text=t; e.mood=chosen; } persist(); ov.remove(); render(); };
+    const del=el('button','ghost','Delete'); del.onclick=()=>{ uiConfirm('Delete this reflection?', ()=>{ data.entries=data.entries.filter(x=>x.id!==eid); persist(); ov.remove(); render(); }); };
+    const save=el('button','primary','Save'); save.onclick=()=>{ const t=ta.value.trim(); if(!t){ ov.remove(); return; } e.text=t; e.mood=chosen; persist(); ov.remove(); render(); };
     foot.appendChild(del); foot.appendChild(save);
     box.appendChild(head); box.appendChild(body); box.appendChild(foot); ov.appendChild(box); document.body.appendChild(ov);
     setTimeout(()=>ta.focus(),0); ov.addEventListener('mousedown',ev=>{ if(ev.target===ov) ov.remove(); });
   }
 
   function celebrate(h,streak){
+    if(!settings().celebrate) return;
     const ov=el('div','overlay'); ov.style.display='flex'; ov.style.zIndex='120';
     const box=el('div','modal'); box.style.maxWidth='320px';
     box.innerHTML='<div style="padding:22px 18px; text-align:center;"><div style="font-size:42px;">🎉</div><div style="font-size:18px; font-weight:700; margin:8px 0 4px;">'+streak+'-day streak!</div><div class="small">'+esc(h.name)+'</div></div>';
@@ -1167,7 +1443,7 @@ const App = (function () {
     const h=data.habits.find(x=>x.id===hid); if(!h) return;
     const ov=el('div','overlay'); ov.style.display='flex'; ov.style.zIndex='110';
     const box=el('div','modal'); box.style.maxWidth='420px';
-    const head=el('div','modal-head','<strong style="flex:1">'+esc(h.name)+' · '+date+'</strong>');
+    const head=el('div','modal-head','<strong style="flex:1">'+esc(h.name)+' · '+esc(date)+'</strong>');
     const close=el('button','iconbtn','✕'); close.onclick=()=>ov.remove(); head.appendChild(close);
     const body=el('div','modal-body');
     const restLbl=el('label','small'); restLbl.style.cssText='display:flex; align-items:center; gap:6px; cursor:pointer;';
@@ -1178,16 +1454,16 @@ const App = (function () {
     if(h.workout){ const met=metricOf(hid,date)||{};
       const wrapM=el('div'); wrapM.style.cssText='display:flex; gap:8px;';
       const mk=(ph,val)=>{ const i=el('input'); i.type='number'; i.min='0'; i.placeholder=ph; if(val) i.value=val; i.style.cssText='width:100%; background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:8px;'; return i; };
-      dist=mk('Distance (mi)', met.dist); mins=mk('Time (min)', met.min); rpe=mk('RPE 1–10', met.rpe); rpe.max='10';
+      dist=mk('Distance ('+distUnit()+')', met.dist?distDisp(met.dist):''); mins=mk('Time (min)', met.min); rpe=mk('RPE 1–10', met.rpe); rpe.max='10';
       const f=(l,i)=>{ const d=el('div','field'); d.style.flex='1'; d.appendChild(el('label',null,l)); d.appendChild(i); return d; };
-      wrapM.appendChild(f('Distance (mi)',dist)); wrapM.appendChild(f('Time (min)',mins)); wrapM.appendChild(f('RPE',rpe));
+      wrapM.appendChild(f('Distance ('+distUnit()+')',dist)); wrapM.appendChild(f('Time (min)',mins)); wrapM.appendChild(f('RPE',rpe));
       body.appendChild(wrapM);
     }
     const ta=el('textarea'); ta.style.cssText='width:100%; min-height:90px; background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:8px;'; ta.value=noteFor(hid,date); ta.placeholder='How did it go?'; body.appendChild(ta);
     const foot=el('div','modal-foot'); foot.style.justifyContent='flex-end'; const save=el('button','primary','Save');
     save.onclick=()=>{
       if(rest.checked) setLog(h,date,'skip'); else if(isSkipped(h,date)) setLog(h,date,false);
-      if(h.workout) setMetric(hid,date,{ dist:parseFloat(dist.value)||0, min:parseInt(mins.value,10)||0, rpe:parseInt(rpe.value,10)||0 });
+      if(h.workout){ const dv=parseFloat(dist.value)||0; const distMi=distUnit()==='km'?dv/MI2KM:dv; setMetric(hid,date,{ dist:Math.round(distMi*100)/100, min:parseInt(mins.value,10)||0, rpe:parseInt(rpe.value,10)||0 }); }
       const v=ta.value.trim(); const m=data.notes[hid]=data.notes[hid]||{}; if(v) m[date]=v; else delete m[date]; if(Object.keys(m).length===0) delete data.notes[hid];
       persist(); ov.remove(); render();
     };
@@ -1209,11 +1485,11 @@ const App = (function () {
     const thisWk=weekVol(wkStart), lastWk=weekVol(addDays(wkStart,-7));
     const summary=el('div','tr-summary');
     summary.appendChild(el('div','trs-big', fmtDur(thisWk.m)));
-    summary.appendChild(el('div','small','this week · '+thisWk.c+' session'+(thisWk.c===1?'':'s')+(thisWk.d?(' · '+Math.round(thisWk.d)+' mi'):'')));
+    summary.appendChild(el('div','small','this week · '+thisWk.c+' session'+(thisWk.c===1?'':'s')+(thisWk.d?(' · '+distStr(thisWk.d,true)):'')));
     const diff=thisWk.m-lastWk.m; const tr=el('div','small'); tr.style.marginTop='2px';
     tr.textContent = lastWk.m ? ((diff>=0?'▲ ':'▼ ')+fmtDur(Math.abs(diff))+' vs last week ('+fmtDur(lastWk.m)+')') : 'First week of training data';
     summary.appendChild(tr);
-    const at=allTimeTotals(); if(at.count) summary.appendChild(el('div','small','All-time: '+at.count+' workouts · '+fmtDur(at.min)+(at.dist?(' · '+Math.round(at.dist)+' mi'):'')));
+    const at=allTimeTotals(); if(at.count) summary.appendChild(el('div','small','All-time: '+at.count+' workouts · '+fmtDur(at.min)+(at.dist?(' · '+distStr(at.dist,true)):'')));
     wrap.appendChild(summary);
     // volume chart with range toggle
     const volHdr=el('div'); volHdr.style.cssText='display:flex; align-items:center; gap:8px;';
@@ -1227,11 +1503,11 @@ const App = (function () {
     wrap.appendChild(chart);
     wrap.appendChild(el('div','small','By activity (this week)'));
     sh.forEach(h=>{ const a=metricAgg(h,7); const row=el('div','tr-hrow');
-      row.innerHTML='<span class="tr-hic" style="color:'+safeColor(h.color,'var(--fg)')+'">'+esc(h.icon||'•')+'</span><span class="tr-hname">'+esc(h.name)+'</span><span class="tr-hval">'+fmtDur(a.min)+(a.dist?(' · '+Math.round(a.dist)+' mi'):'')+'</span>';
+      row.innerHTML='<span class="tr-hic" style="color:'+safeColor(h.color,'var(--fg)')+'">'+esc(h.icon||'•')+'</span><span class="tr-hname">'+esc(h.name)+'</span><span class="tr-hval">'+fmtDur(a.min)+(a.dist?(' · '+distStr(a.dist,true)):'')+'</span>';
       wrap.appendChild(row); });
     const recent=allWorkouts(45).slice(0,12);
     if(recent.length){ wrap.appendChild(el('div','small','Recent sessions'));
-      recent.forEach(r=>{ const parts=[]; if(+r.m.dist) parts.push(Math.round(r.m.dist)+' mi'); if(+r.m.min) parts.push(fmtDur(r.m.min)); if(+r.m.rpe) parts.push('RPE '+(+r.m.rpe));
+      recent.forEach(r=>{ const parts=[]; if(+r.m.dist) parts.push(distStr(r.m.dist,true)); if(+r.m.min) parts.push(fmtDur(r.m.min)); if(+r.m.rpe) parts.push('RPE '+(+r.m.rpe));
         const row=el('div','tr-srow'); row.style.cursor='pointer';
         row.innerHTML='<span class="tr-sic" style="color:'+safeColor(r.habit.color,'var(--fg)')+'">'+esc(r.habit.icon||'•')+'</span><span class="tr-sname">'+esc(r.habit.name)+' <span class="tr-sdate">'+esc(fmtDate(r.date))+'</span></span><span class="tr-sval">'+esc(parts.join(' · '))+'</span>';
         row.onclick=()=>openDay(r.habit.id,r.date); wrap.appendChild(row); });
@@ -1319,13 +1595,14 @@ const App = (function () {
     $('#addBtn').onclick=()=>{ const h={ id:id(), name:'New habit', icon:ICONS[Math.floor(Math.random()*ICONS.length)], color:COLORS[data.habits.length%COLORS.length], schedule:{type:'daily'}, track:'check', goal:1, unit:'', workout:false, archived:false, createdAt:new Date().toISOString() };
       data.habits.push(h); persist(); render(); openEditor(h.id); };
     $('#undoBtn').onclick=undo;
+    $('#settingsBtn').onclick=openSettings;
     $('#h_close').onclick=closeEditor; $('#h_save').onclick=closeEditor;
     $('#overlay').addEventListener('mousedown',e=>{ if(e.target.id==='overlay') closeEditor(); });
     $('#h_sched').onchange=()=>{ syncSchedFields(); commitEditor(); }; $('#h_track').onchange=()=>{ syncSchedFields(); commitEditor(); };
     ['h_name','h_target','h_goal','h_unit'].forEach(idn=>{ const e=document.getElementById(idn); e.onchange=commitEditor; });
     $('#h_archive').onclick=()=>{ const h=data.habits.find(x=>x.id===editingId); if(!h) return; h.archived=!h.archived; editingId=null; $('#overlay').classList.remove('open'); persist(); render(); };
     $('#h_delete').onclick=()=>{ if(!editingId) return; const tid=editingId;
-      uiConfirm('Delete this habit and its history?', ()=>{ data.habits=data.habits.filter(x=>x.id!==tid); delete data.log[tid]; editingId=null; $('#overlay').classList.remove('open'); persist(); render(); }); };
+      uiConfirm('Delete this habit and its history?', ()=>{ data.habits=data.habits.filter(x=>x.id!==tid); delete data.log[tid]; delete data.notes[tid]; if(data.metrics) delete data.metrics[tid]; editingId=null; $('#overlay').classList.remove('open'); persist(); render(); }); };
     document.addEventListener('keydown',e=>{ if((e.ctrlKey||e.metaKey)&&(e.key==='z'||e.key==='Z')){ e.preventDefault(); undo(); } if(e.key==='Escape'&&$('#overlay').classList.contains('open')) closeEditor(); });
     window.addEventListener('beforeunload',()=>{ if(dirty) SNBridge.flushNow(); });
     $('#archBtn').onclick=openArchived;
@@ -1349,9 +1626,58 @@ const App = (function () {
       row.appendChild(ic); row.appendChild(el('div','hname',esc(h.name)));
       const un=el('button','ghost','Unarchive'); un.onclick=()=>{ h.archived=false; persist(); ov.remove(); render(); };
       const del=el('button','danger','Delete'); del.onclick=()=>{ const tid=h.id; ov.remove();
-        uiConfirm('Delete this habit and its history?', ()=>{ data.habits=data.habits.filter(x=>x.id!==tid); delete data.log[tid]; persist(); render(); }); };
+        uiConfirm('Delete this habit and its history?', ()=>{ data.habits=data.habits.filter(x=>x.id!==tid); delete data.log[tid]; delete data.notes[tid]; if(data.metrics) delete data.metrics[tid]; persist(); render(); }); };
       row.appendChild(un); row.appendChild(del); body.appendChild(row);
     });
+    box.appendChild(head); box.appendChild(body); ov.appendChild(box); document.body.appendChild(ov);
+    ov.addEventListener('mousedown',e=>{ if(e.target===ov) ov.remove(); });
+  }
+
+  /* ---- export / backup (all local) ---- */
+  function csvCell(v){ v=String(v==null?'':v); return /[",\n]/.test(v)?('"'+v.replace(/"/g,'""')+'"'):v; }
+  function buildCSV(){
+    const rows=[['date','habit','status','count','distance_'+distUnit(),'minutes','rpe','note']];
+    const act=data.habits;
+    act.forEach(h=>{ const lg=data.log[h.id]||{}; const mt=data.metrics[h.id]||{}; const nt=data.notes[h.id]||{};
+      const dates=new Set([...Object.keys(lg),...Object.keys(mt),...Object.keys(nt)]);
+      Array.from(dates).sort().forEach(d=>{ const v=lg[d]; const m=mt[d]||{};
+        const status=v==='skip'?'rest':(v===true?'done':(typeof v==='number'?'count':''));
+        rows.push([d,h.name,status,(typeof v==='number'?v:''),(m.dist?(Math.round(distDisp(m.dist)*100)/100):''),(m.min||''),(m.rpe||''),nt[d]||'']); }); });
+    (data.entries||[]).forEach(e=>rows.push([e.date,'(journal)','entry','','','','',e.text]));
+    return rows.map(r=>r.map(csvCell).join(',')).join('\n');
+  }
+  function tryDownload(name,text,mime){ try{ const a=document.createElement('a'); a.href='data:'+(mime||'text/plain')+';charset=utf-8,'+encodeURIComponent(text); a.download=name; document.body.appendChild(a); a.click(); a.remove(); return true; }catch(e){ return false; } }
+  function exportBlock(label,getText,filename,mime){
+    const box=el('div','field'); box.appendChild(el('label',null,label));
+    const row=el('div'); row.style.cssText='display:flex; gap:8px; flex-wrap:wrap; align-items:center;';
+    const dl=el('button','ghost','⤓ Download'); const cp=el('button','ghost','Copy'); const msg=el('span','small');
+    const pv=el('textarea'); pv.readOnly=true; pv.style.cssText='width:100%; min-height:120px; margin-top:6px; display:none; background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:8px; font-family:ui-monospace,Menlo,monospace; font-size:12px;';
+    dl.onclick=()=>{ if(!tryDownload(filename,getText(),mime)){ pv.value=getText(); pv.style.display=''; pv.focus(); pv.select(); msg.textContent='If nothing downloaded, copy from the box.'; } };
+    cp.onclick=()=>{ copyText(getText(),okd=>{ if(okd){ msg.textContent='Copied ✓'; setTimeout(()=>msg.textContent='',2500); } else { pv.value=getText(); pv.style.display=''; pv.focus(); pv.select(); } }); };
+    row.appendChild(dl); row.appendChild(cp); row.appendChild(msg); box.appendChild(row); box.appendChild(pv); return box;
+  }
+  function restoreFromText(text){ let p=null; try{ p=JSON.parse(text); }catch(e){ uiInfo('That file isn’t valid JSON.'); return; }
+    if(!p||!Array.isArray(p.habits)){ uiInfo('That doesn’t look like a Habits backup.'); return; }
+    uiConfirm('Replace ALL current habits and history with this backup? This can’t be undone.', ()=>{ data=migrate(p); ensureGamSeed(); persist(); render(); uiInfo('Backup restored.'); }); }
+  function openSettings(){
+    const ov=el('div','overlay'); ov.style.display='flex'; ov.style.zIndex='115';
+    const box=el('div','modal'); box.style.maxWidth='460px';
+    const head=el('div','modal-head','<strong style="flex:1">⚙ Settings & backup</strong>');
+    const close=el('button','iconbtn','✕'); close.setAttribute('aria-label','Close'); close.onclick=()=>ov.remove(); head.appendChild(close);
+    const body=el('div','modal-body');
+    const st=settings();
+    const selField=(label,opts,val,on)=>{ const f=el('div','field'); f.appendChild(el('label',null,label)); const sel=el('select'); opts.forEach(o=>{ const op=el('option'); op.value=o[0]; op.textContent=o[1]; sel.appendChild(op); }); sel.value=val; sel.onchange=()=>{ on(sel.value); persist(); render(); }; f.appendChild(sel); return f; };
+    body.appendChild(selField('Distance unit',[['mi','Miles'],['km','Kilometers']],st.unit,v=>{ data.settings.unit=v; }));
+    body.appendChild(selField('Week starts on',[['1','Monday'],['0','Sunday']],String(st.weekStart),v=>{ data.settings.weekStart=v==='0'?0:1; }));
+    const cf=el('label','opt-check'); cf.style.cssText='display:flex; align-items:center; gap:8px; margin:6px 0;'; const cb=el('input'); cb.type='checkbox'; cb.checked=st.celebrate!==false; cb.style.cssText='width:auto;margin:0;'; cb.onchange=()=>{ data.settings.celebrate=cb.checked; persist(); }; cf.appendChild(cb); cf.appendChild(document.createTextNode(' Show celebration pop-ups (streaks, levels, badges)')); body.appendChild(cf);
+    body.appendChild(el('div','small','Everything below stays on this device until you save or paste it somewhere yourself.'));
+    body.appendChild(exportBlock('Full backup (JSON) — restore-able', ()=>JSON.stringify(data), 'habits-backup-'+todayStr()+'.json','application/json'));
+    body.appendChild(exportBlock('Spreadsheet (CSV)', buildCSV, 'habits-'+todayStr()+'.csv','text/csv'));
+    // Restore
+    const rf=el('div','field'); rf.appendChild(el('label',null,'Restore from a JSON backup'));
+    const ri=el('input'); ri.type='file'; ri.accept='.json,application/json,text/plain'; ri.style.cssText='font-size:13px;';
+    ri.onchange=()=>{ const f=ri.files&&ri.files[0]; if(!f) return; const rd=new FileReader(); rd.onload=()=>restoreFromText(String(rd.result)); rd.onerror=()=>uiInfo('Could not read that file.'); rd.readAsText(f); ri.value=''; };
+    rf.appendChild(ri); body.appendChild(rf);
     box.appendChild(head); box.appendChild(body); ov.appendChild(box); document.body.appendChild(ov);
     ov.addEventListener('mousedown',e=>{ if(e.target===ov) ov.remove(); });
   }
