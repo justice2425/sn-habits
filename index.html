@@ -14,7 +14,7 @@
        SN bridge uses postMessage, which CSP does not govern (see origin checks in SNBridge).
      - base-uri and form-action 'none' stop <base> hijacking and form submissions.
      A meta-tag CSP can't set frame-ancestors; embedding is handled by SNBridge's origin pinning. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-hT9RXqqlvM+wjIgp1pQ/8R/XWFshI+Z0KHG1oIdhZto='; style-src 'unsafe-inline' data: https://app.standardnotes.com http://localhost:* http://127.0.0.1:*; font-src data: https://app.standardnotes.com http://localhost:* http://127.0.0.1:*; img-src data: blob: https://app.standardnotes.com http://localhost:* http://127.0.0.1:*; connect-src 'none'; media-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-BWpP8xAxAk9ZzQQVY3VK8/Ub+zY103k+1afLf6+hIKI='; style-src 'unsafe-inline' data: https://app.standardnotes.com http://localhost:* http://127.0.0.1:*; font-src data: https://app.standardnotes.com http://localhost:* http://127.0.0.1:*; img-src data: blob: https://app.standardnotes.com http://localhost:* http://127.0.0.1:*; connect-src 'none'; media-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'" />
 <meta name="referrer" content="no-referrer" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
 <title>Habits</title>
@@ -372,6 +372,30 @@
   .jmood-b:hover { opacity:1; }
   .jmood-b.on { filter:none; opacity:1; border-color:var(--accent); background:var(--panel); }
   .jsearch { width:100%; margin-bottom:10px; }
+  /* decision journal */
+  .dc-tabs { margin-bottom:12px; }
+  .dc-modal textarea, .dc-modal input[type=text] { width:100%; box-sizing:border-box; }
+  .dc-intro { font-size:13px; color:var(--muted); margin:0 0 10px; }
+  .dc-title { font-weight:600; word-break:break-word; }
+  .dc-actions { display:flex; gap:6px; align-items:flex-start; flex:0 0 auto; }
+  .dc-refl { white-space:pre-wrap; word-break:break-word; font-size:13px; margin-top:4px; }
+  .tgcard.dc-due { cursor:default; }
+  .tgcard.dc-due:hover { border-color:var(--border); }
+  .dc-row { display:flex; align-items:center; gap:8px; padding:4px 0; }
+  .dc-row .dc-t { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; }
+  .dc-conf { display:flex; align-items:center; gap:10px; }
+  .dc-conf input[type=range] { flex:1; }
+  .dc-conf output { min-width:78px; font-weight:600; }
+  .dc-picks { display:flex; gap:6px; flex-wrap:wrap; margin-top:-4px; }
+  .dc-picks button { padding:3px 9px; border-radius:999px; font-size:12px; }
+  .dc-dates { display:flex; gap:12px; flex-wrap:wrap; }
+  .dc-outcomes { display:flex; gap:6px; flex-wrap:wrap; }
+  .dc-outcomes button[aria-pressed="true"] { background:var(--accent); color:var(--accent-fg); border-color:var(--accent); }
+  .dc-quote { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:10px 12px; font-size:13px; display:flex; flex-direction:column; gap:4px; }
+  .dc-quote .dc-pred { white-space:pre-wrap; word-break:break-word; }
+  .dc-band { display:flex; align-items:center; gap:8px; font-size:12.5px; margin:5px 0; }
+  .dc-band .dc-bl { flex:0 0 150px; }
+  .dc-band .dc-bv { flex:0 0 118px; text-align:right; color:var(--muted); }
 </style>
 </head>
 <body>
@@ -703,7 +727,7 @@ const App = (function () {
   function id(){ return (window.crypto&&crypto.randomUUID)?crypto.randomUUID().slice(0,8):Math.random().toString(36).slice(2,10); }
   // New boards start empty; the Today view offers one-tap suggestions instead of pre-seeding.
   function defaultData(){
-    return { schema:SCHEMA, habits:[], log:{}, notes:{}, metrics:{}, entries:[],
+    return { schema:SCHEMA, habits:[], log:{}, notes:{}, metrics:{}, entries:[], decisions:[],
       ui:{ view:'today', calZoom:'month' }, gam:{},
       settings:{ unit:'mi', weekStart:1, celebrate:true } };
   }
@@ -779,6 +803,16 @@ const App = (function () {
     d.metrics=byId(d.metrics,v=>{ if(!v||typeof v!=='object') return undefined; const o={dist:Number(v.dist)||0,min:Number(v.min)||0,rpe:Number(v.rpe)||0}; return (o.dist||o.min||o.rpe)?o:undefined; });
     d.entries=(Array.isArray(d.entries)?d.entries:[]).filter(e=>e&&typeof e==='object'&&goodDate(e.date)&&typeof e.text==='string').slice(0,100000)
       .map(e=>({ id:goodId(e.id)?e.id:id(), date:e.date, text:e.text, mood:nInt(e.mood,0,5,0), prompt:(typeof e.prompt==='string'?e.prompt:'').slice(0,500) }));
+    // Decisions: kept to known fields and types, like entries above. Outcome is null until reviewed.
+    const dIds=new Set();
+    d.decisions=(Array.isArray(d.decisions)?d.decisions:[]).filter(x=>x&&typeof x==='object'&&!Array.isArray(x)&&goodDate(x.date)&&typeof x.title==='string'&&x.title.trim()).slice(0,20000).map(x=>{
+      const did=(goodId(x.id)&&!dIds.has(x.id))?x.id:id(); dIds.add(did);
+      const outcome=['yes','no','unclear'].includes(x.outcome)?x.outcome:null;
+      return { id:did, date:x.date, title:x.title.slice(0,500), prediction:(typeof x.prediction==='string'?x.prediction:'').slice(0,2000),
+        conf:nInt(x.conf,1,99,70), context:(typeof x.context==='string'?x.context:'').slice(0,100000),
+        reviewOn:goodDate(x.reviewOn)?x.reviewOn:x.date, outcome,
+        reviewedOn:outcome?(goodDate(x.reviewedOn)?x.reviewedOn:x.date):null,
+        reflection:(typeof x.reflection==='string'?x.reflection:'').slice(0,100000) }; });
     const st=(d.settings&&typeof d.settings==='object'&&!Array.isArray(d.settings))?d.settings:{};
     d.settings={ unit:st.unit==='km'?'km':'mi', weekStart:st.weekStart===0?0:1, celebrate:st.celebrate!==false,
       goalMin:nInt(st.goalMin,0,10080,0), goalDist:Math.min(100000,Math.max(0,Math.round((Number(st.goalDist)||0)*100)/100)) };
@@ -954,7 +988,7 @@ const App = (function () {
     let best=0, run=0, d=f, guard=0; while(d<=today && guard++<20000){ const due=act.filter(h=>dueOnStrict(h,d)); if(due.length && due.every(h=>isDoneOn(h,d))){ run++; best=Math.max(best,run); } else run=0; d=addDays(d,1); } return best; }
   function longestStreakAny(){ let m=0; data.habits.forEach(h=>{ m=Math.max(m,longestStreak(h)); }); return m; }
   function milestoneXP(){ let x=0; data.habits.forEach(h=>{ const ls=longestStreak(h); MILESTONES.forEach(m=>{ if(ls>=m) x+=m*2; }); }); return x; }
-  function totalXP(){ return totalCompletions()*XP_PER_DONE + perfectDaysAllTime()*XP_PER_PERFECT + milestoneXP(); }
+  function totalXP(){ return totalCompletions()*XP_PER_DONE + perfectDaysAllTime()*XP_PER_PERFECT + milestoneXP() + reviewedDecisions().length*XP_PER_REVIEW; }
   function cumXP(L){ return 50*(L-1)*L; }   // XP to reach level L: L1=0, L2=100, L3=300, L4=600, L5=1000 …
   function levelInfo(xp){ let L=1; while(cumXP(L+1)<=xp && L<999) L++; const cur=cumXP(L), nxt=cumXP(L+1);
     return { level:L, into:xp-cur, need:nxt-cur, pct: (nxt-cur)?Math.min(100,Math.round((xp-cur)/(nxt-cur)*100)):100, title:LEVEL_TITLES[Math.min(L-1,LEVEL_TITLES.length-1)] }; }
@@ -975,6 +1009,8 @@ const App = (function () {
     { id:'comeback',    icon:'💪', name:'Comeback',       desc:'Bounce back after breaking a 5+ day streak', earned:()=>comebackDone() },
     { id:'collector',   icon:'🧩', name:'Well-rounded',   desc:'Track 5 or more habits',              earned:()=>data.habits.filter(h=>!h.archived).length>=5 },
     { id:'reflective',  icon:'📓', name:'Reflective',     desc:'Write 10 journal reflections',        earned:()=>journalEntries().length>=10 },
+    { id:'decider',     icon:'⚖️', name:'Decider',        desc:'Record a decision to review later',   earned:()=>decisions().length>=1 },
+    { id:'hindsight',   icon:'🔭', name:'Hindsight',      desc:'Review 10 decisions',                 earned:()=>reviewedDecisions().length>=10 },
     { id:'level5',      icon:'🏅', name:'Level 5',        desc:'Reach level 5',          quiet:true,  earned:()=>levelInfo(totalXP()).level>=5 },
     { id:'level10',     icon:'👑', name:'Level 10',       desc:'Reach level 10',         quiet:true,  earned:()=>levelInfo(totalXP()).level>=10 },
   ];
@@ -1213,6 +1249,7 @@ const App = (function () {
     const xpNow=totalXP(); const gain=(lastXPSeen!=null && xpNow>lastXPSeen) ? (xpNow-lastXPSeen) : 0; lastXPSeen=xpNow;
     const lb=levelBar(); if(gain>0) lb.appendChild(el('span','lv-gain','+'+gain+' XP')); wrap.appendChild(lb);
     const tgc=trainingGoalCard(); if(tgc) wrap.appendChild(tgc);
+    const dcc=decisionDueCard(); if(dcc) wrap.appendChild(dcc);
     const dueToday=act.filter(h=>scheduledOn(h,today)&&!isSkipped(h,today));
     const doneToday=dueToday.filter(h=>isDoneOn(h,today));
     if(dueToday.length) wrap.appendChild(progressRing(doneToday.length,dueToday.length));
@@ -1418,6 +1455,8 @@ const App = (function () {
       if(tot>0){ const p=Math.round(js.pos/tot*100); s6.appendChild(el('div','small','Rough tone tally: '+js.pos+' positive vs '+js.neg+' cautionary words ('+p+'% positive). <span class="ins-caveat">Crude — “not good” counts as positive. Read it as a nudge, not a score.</span>')); }
     }
     wrap.appendChild(s6);
+
+    const cal=calibrationCard(); if(cal) wrap.appendChild(cal);
 
     // G) optional export for AI
     const s7=el('div','ins-card'); s7.appendChild(el('h4',null,'Export for AI (optional)'));
@@ -1720,7 +1759,11 @@ const App = (function () {
   }
   function renderJournal(){
     const wrap=el('div','journal');
-    wrap.appendChild(el('div','jhead','Reflections'));
+    const dueN=dueDecisions().length; const tabs=el('div','seg dc-tabs');
+    [['reflections','Reflections'],['decisions','Decisions'+(dueN?(' ('+dueN+' due)'):'')]].forEach(([k,l])=>{ const b=el('button',journalTab===k?'active':'',esc(l)); b.type='button';
+      b.setAttribute('aria-pressed',String(journalTab===k)); b.onclick=()=>{ journalTab=k; render(); }; tabs.appendChild(b); });
+    wrap.appendChild(tabs);
+    if(journalTab==='decisions'){ renderDecisions(wrap); return wrap; }
     // compose box — the draft lives in memory, so switching tabs doesn't lose it
     if(!jDraft.date||jDraft.date>todayStr()) jDraft.date=todayStr();
     if(jDraft.pIdx==null) jDraft.pIdx=Math.floor(Date.now()/86400000)%JPROMPTS.length;
@@ -2027,7 +2070,8 @@ const App = (function () {
     $('#h_archive').onclick=()=>{ const h=data.habits.find(x=>x.id===editingId); if(!h) return; h.archived=!h.archived; editingId=null; $('#overlay').classList.remove('open'); persist(); render(); };
     $('#h_delete').onclick=()=>{ if(!editingId) return; const tid=editingId;
       uiConfirm('Delete this habit and its history?', ()=>{ data.habits=data.habits.filter(x=>x.id!==tid); delete data.log[tid]; delete data.notes[tid]; if(data.metrics) delete data.metrics[tid]; editingId=null; $('#overlay').classList.remove('open'); persist(); render(); }); };
-    document.addEventListener('keydown',e=>{ if((e.ctrlKey||e.metaKey)&&(e.key==='z'||e.key==='Z')){ e.preventDefault(); undo(); } if(e.key==='Escape'&&$('#overlay').classList.contains('open')) closeEditor(); });
+    document.addEventListener('keydown',e=>{ const inField=e.target&&e.target.closest&&e.target.closest('input,textarea,select,[contenteditable]');
+      if((e.ctrlKey||e.metaKey)&&(e.key==='z'||e.key==='Z')&&!inField){ e.preventDefault(); undo(); } if(e.key==='Escape'&&$('#overlay').classList.contains('open')) closeEditor(); });
     window.addEventListener('beforeunload',()=>{ if(dirty) SNBridge.flushNow(); });
     $('#archBtn').onclick=openArchived;
     $('#h_up').onclick=()=>{ if(editingId) moveHabit(editingId,-1); };
@@ -2106,6 +2150,154 @@ const App = (function () {
     ov.addEventListener('mousedown',e=>{ if(e.target===ov) ov.remove(); });
   }
 
+  /* ---- Decision journal ----
+     Write down a decision, what you expect to happen and how sure you are (1–99%), and a review date.
+     On that date Today asks what happened. Insights scores calibration with the Brier score.
+     Reviewing earns XP; the score itself never does, so there is nothing to game. */
+  const XP_PER_REVIEW=15;
+  const OUTCOME_LABEL={ yes:'✓ Happened', no:'✗ Didn’t happen', unclear:'? Can’t tell' };
+  let journalTab='reflections';
+  function decisions(){ return (data&&data.decisions)||[]; }
+  function isDue(x){ return !x.outcome && x.reviewOn<=todayStr(); }
+  function dueDecisions(){ return decisions().filter(isDue).sort((a,b)=>a.reviewOn.localeCompare(b.reviewOn)); }
+  function reviewedDecisions(){ return decisions().filter(x=>x.outcome); }
+  function scoredDecisions(){ return decisions().filter(x=>x.outcome==='yes'||x.outcome==='no'); }   // "can't tell" is not scored
+  // Brier score: mean of (stated probability - outcome)^2 with outcome 1 or 0. 0 is perfect; always saying 50% scores 0.25.
+  function brier(list){ if(!list.length) return null; return list.reduce((s,x)=>{ const p=x.conf/100, o=x.outcome==='yes'?1:0; return s+(p-o)*(p-o); },0)/list.length; }
+  // Calibration bands. 30% that something happens is the same claim as 70% that it doesn't, so fold 1-49 onto 51-99.
+  function calibrationBands(list){ const bands=[[50,59],[60,69],[70,79],[80,89],[90,99]].map(([lo,hi])=>({lo,hi,n:0,hit:0,sum:0}));
+    list.forEach(x=>{ let p=x.conf, hit=x.outcome==='yes'; if(p<50){ p=100-p; hit=!hit; } const b=bands.find(z=>p>=z.lo&&p<=z.hi); if(b){ b.n++; b.sum+=p; if(hit) b.hit++; } });
+    return bands; }
+  function dcDate(iso){ return iso?new Date(iso+'T00:00:00').toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}):''; }
+  function addMonths(iso,n){ const d=new Date(iso+'T00:00:00'); const day=d.getDate(); d.setMonth(d.getMonth()+n); if(d.getDate()<day) d.setDate(0); return toISODate(d); }
+  function dcField(label,node,hint,forId){ const f=el('div','field'); const l=el('label'); l.textContent=label; const tgt=forId||node.id||(node.id='dc'+id()); l.htmlFor=tgt;
+    f.appendChild(l); f.appendChild(node); if(hint){ const h=el('div','small'); h.textContent=hint; f.appendChild(h); } return f; }
+  function dcModal(titleText,maxW){ const ov=el('div','overlay'); ov.style.display='flex'; ov.style.zIndex='125';
+    const box=el('div','modal dc-modal'); box.style.maxWidth=maxW||'520px'; box.setAttribute('role','dialog'); box.setAttribute('aria-label',titleText);
+    const head=el('div','modal-head'); head.appendChild(el('strong',null,esc(titleText))); const sp=el('span'); sp.style.flex='1'; head.appendChild(sp);
+    const close=el('button','iconbtn','✕'); close.type='button'; close.setAttribute('aria-label','Close'); head.appendChild(close);
+    const body=el('div','modal-body'); const foot=el('div','modal-foot');
+    box.appendChild(head); box.appendChild(body); box.appendChild(foot); ov.appendChild(box);
+    return { ov, box, body, foot, close }; }
+  function dcWire(m,tryClose,save){ m.close.onclick=tryClose;
+    m.box.addEventListener('keydown',ev=>{ if((ev.ctrlKey||ev.metaKey)&&ev.key==='Enter'){ ev.preventDefault(); save(); } else if(ev.key==='Escape'){ ev.preventDefault(); ev.stopPropagation(); tryClose(); } });
+    m.ov.addEventListener('mousedown',ev=>{ if(ev.target===m.ov) tryClose(); }); document.body.appendChild(m.ov); }
+
+  function openDecisionEditor(did){
+    const ex=did?decisions().find(x=>x.id===did):null; if(did&&!ex) return;
+    const locked=!!(ex&&ex.outcome);   // after a review, the prediction and confidence are frozen so the score stays honest
+    const st={ title:ex?ex.title:'', prediction:ex?ex.prediction:'', conf:ex?ex.conf:70, context:ex?ex.context:'', date:ex?ex.date:todayStr(), reviewOn:ex?ex.reviewOn:addMonths(todayStr(),3) };
+    const start=JSON.stringify(st); const m=dcModal(ex?'Edit decision':'New decision');
+    const title=el('input'); title.type='text'; title.maxLength=500; title.placeholder='e.g. Take the job offer at Acme'; title.value=st.title; title.oninput=()=>{ st.title=title.value; };
+    m.body.appendChild(dcField('Decision',title));
+    const pred=el('textarea'); pred.rows=2; pred.maxLength=2000; pred.value=st.prediction; pred.disabled=locked; pred.oninput=()=>{ st.prediction=pred.value; };
+    pred.placeholder='Phrase it so it will be clearly true or false later, e.g. “In six months I’ll be glad I took it.”';
+    m.body.appendChild(dcField('What do you expect to happen?',pred));
+    const confWrap=el('div','dc-conf'); const range=el('input'); range.type='range'; range.min='1'; range.max='99'; range.step='1'; range.value=String(st.conf); range.disabled=locked; range.id='dc'+id();
+    const out=el('output'); const showConf=()=>{ out.textContent=st.conf+'% likely'; range.setAttribute('aria-valuetext',st.conf+' percent likely'); };
+    range.oninput=()=>{ st.conf=nInt(range.value,1,99,70); showConf(); }; showConf(); confWrap.appendChild(range); confWrap.appendChild(out);
+    m.body.appendChild(dcField('How sure are you?',confWrap, locked?'Locked after review, so your score stays honest.':'50% is a coin flip. Aim for honest rather than hopeful; that’s what makes the score useful.', range.id));
+    const ctx=el('textarea'); ctx.rows=4; ctx.value=st.context; ctx.oninput=()=>{ st.context=ctx.value; };
+    ctx.placeholder='Your reasoning, the options you rejected, what you’re unsure about. Future you will want this.';
+    m.body.appendChild(dcField('Why (optional)',ctx));
+    const dates=el('div','dc-dates');
+    const dIn=dateInput(st.date,v=>{ st.date=v; }); dIn.setAttribute('aria-label','Decided on');
+    const rIn=el('input'); rIn.type='date'; rIn.className='jdate'; rIn.value=st.reviewOn; rIn.onchange=()=>{ if(goodDate(rIn.value)) st.reviewOn=rIn.value; else rIn.value=st.reviewOn; };
+    dates.appendChild(dcField('Decided on',dIn)); dates.appendChild(dcField('Review on',rIn)); m.body.appendChild(dates);
+    const picks=el('div','dc-picks'); [[1,'1 month'],[3,'3 months'],[6,'6 months'],[12,'1 year']].forEach(([n,l])=>{ const b=el('button','ghost',l); b.type='button';
+      b.setAttribute('aria-label','Review '+l+' after the decision'); b.onclick=()=>{ st.reviewOn=addMonths(st.date,n); rIn.value=st.reviewOn; }; picks.appendChild(b); });
+    m.body.appendChild(picks);
+    const left=el('span'), right=el('span'); right.style.cssText='display:flex; gap:8px; align-items:center;';
+    const msg=el('span','small'); msg.setAttribute('role','status');
+    if(ex){ const del=el('button','danger','Delete'); del.type='button';
+      del.onclick=()=>uiConfirm('Delete this decision'+(ex.outcome?' and its review':'')+'?',()=>{ data.decisions=decisions().filter(x=>x.id!==ex.id); persist(); m.ov.remove(); render(); }); left.appendChild(del); }
+    const cancel=el('button','ghost','Cancel'); cancel.type='button'; const save=el('button','primary',ex?'Save':'Add decision'); save.type='button';
+    right.appendChild(msg); right.appendChild(cancel); right.appendChild(save); m.foot.appendChild(left); m.foot.appendChild(right);
+    const tryClose=()=>{ if(JSON.stringify(st)!==start) uiConfirm('Discard your changes?',()=>m.ov.remove(),'Discard'); else m.ov.remove(); };
+    cancel.onclick=tryClose;
+    save.onclick=()=>{ const t=st.title.trim(); if(!t){ msg.textContent='Name the decision first.'; title.focus(); return; }
+      if(st.reviewOn<=st.date){ msg.textContent='Pick a review date after the decision date.'; rIn.focus(); return; }
+      const rec={ title:t.slice(0,500), prediction:st.prediction.trim().slice(0,2000), context:st.context.slice(0,100000), date:st.date, reviewOn:st.reviewOn };
+      if(ex){ const cur=decisions().find(x=>x.id===ex.id);   // look it up again: an undo may have replaced the data meanwhile
+        if(!cur){ msg.textContent='This decision no longer exists (was it undone?).'; return; }
+        if(!locked) rec.conf=st.conf; Object.assign(cur,rec); }
+      else { data.decisions=decisions().slice(); data.decisions.push(Object.assign({ id:id(), conf:st.conf, outcome:null, reviewedOn:null, reflection:'' },rec)); }
+      persist(); m.ov.remove(); render(); };
+    dcWire(m,tryClose,()=>save.click()); setTimeout(()=>title.focus(),0);
+  }
+
+  function openDecisionReview(did){
+    const x0=decisions().find(x=>x.id===did); if(!x0) return;
+    let outcome=x0.outcome||null; const m=dcModal(x0.outcome?'Edit review':'Review decision','480px');
+    const q=el('div','dc-quote'); const t=el('strong'); t.textContent=x0.title; q.appendChild(t);
+    q.appendChild(el('div','small','Decided '+esc(dcDate(x0.date))+'. You said '+x0.conf+'% likely:'));
+    const p=el('div','dc-pred'); p.textContent=x0.prediction||'(No prediction written; judge by the decision itself.)'; q.appendChild(p);
+    if(x0.context){ const det=el('details'); det.appendChild(el('summary','small','Your reasoning at the time')); const c=el('div','dc-pred'); c.textContent=x0.context; det.appendChild(c); q.appendChild(det); }
+    m.body.appendChild(q);
+    const outs=el('div','dc-outcomes'); outs.setAttribute('role','group'); outs.setAttribute('aria-label','What happened?'); const btns=[];
+    [['yes','✓ It happened'],['no','✗ It didn’t'],['unclear','? Can’t tell']].forEach(([k,l])=>{ const b=el('button','ghost',l); b.type='button';
+      b.onclick=()=>{ outcome=k; btns.forEach(z=>z.setAttribute('aria-pressed',String(z===b))); save.disabled=false; }; b.setAttribute('aria-pressed',String(outcome===k)); btns.push(b); outs.appendChild(b); });
+    const of=el('div','field'); of.appendChild(el('label',null,'What happened?')); of.appendChild(outs); of.appendChild(el('div','small','“Can’t tell” counts as reviewed but isn’t scored.')); m.body.appendChild(of);
+    const ta=el('textarea'); ta.rows=4; ta.value=x0.reflection||''; ta.placeholder='What did you learn? Would you decide the same way again?';
+    m.body.appendChild(dcField('Reflection (optional)',ta));
+    const left=el('span'), right=el('span'); right.style.cssText='display:flex; gap:8px; align-items:center;'; const msg=el('span','small'); msg.setAttribute('role','status');
+    if(!x0.outcome){ const snooze=el('button','ghost','Ask in 2 weeks'); snooze.type='button';
+      snooze.onclick=()=>{ const cur=decisions().find(x=>x.id===did); if(cur){ cur.reviewOn=addDays(todayStr(),14); persist(); } m.ov.remove(); render(); }; left.appendChild(snooze); }
+    const cancel=el('button','ghost','Cancel'); cancel.type='button'; const save=el('button','primary','Save review'); save.type='button'; save.disabled=!outcome;
+    right.appendChild(msg); right.appendChild(cancel); right.appendChild(save); m.foot.appendChild(left); m.foot.appendChild(right);
+    const tryClose=()=>{ if(ta.value!==(x0.reflection||'')||outcome!==(x0.outcome||null)) uiConfirm('Discard this review?',()=>m.ov.remove(),'Discard'); else m.ov.remove(); };
+    cancel.onclick=tryClose;
+    save.onclick=()=>{ if(!outcome) return; const cur=decisions().find(x=>x.id===did); if(!cur){ msg.textContent='This decision no longer exists (was it undone?).'; return; }
+      cur.outcome=outcome; cur.reviewedOn=cur.reviewedOn||todayStr(); cur.reflection=ta.value.trim().slice(0,100000); persist(); m.ov.remove(); render(); };
+    dcWire(m,tryClose,()=>save.click()); setTimeout(()=>{ (btns.find(b=>b.getAttribute('aria-pressed')==='true')||btns[0]).focus(); },0);
+  }
+
+  function decisionItem(x){ const it=el('div','jitem');
+    it.appendChild(el('div','ji-ic', x.outcome==='yes'?'✅':x.outcome==='no'?'❌':x.outcome==='unclear'?'❔':'⚖️'));
+    const tx=el('div','ji-txt'); const t=el('div','dc-title'); t.textContent=x.title; tx.appendChild(t);
+    const p=el('div','small'); p.textContent=(x.prediction?('Expected: '+x.prediction+' · '):'')+x.conf+'% sure'; tx.appendChild(p);
+    const meta=el('div','ji-meta'); meta.textContent='Decided '+dcDate(x.date)+' · '+(x.outcome?(OUTCOME_LABEL[x.outcome]+', reviewed '+dcDate(x.reviewedOn)):(isDue(x)?'Review due':'Review on '+dcDate(x.reviewOn))); tx.appendChild(meta);
+    if(x.reflection){ const r=el('div','dc-refl'); r.textContent=x.reflection; tx.appendChild(r); }
+    it.appendChild(tx);
+    const acts=el('div','dc-actions');
+    const rv=el('button',(!x.outcome&&isDue(x))?'primary':'ghost',x.outcome?'Edit review':'Review'); rv.type='button'; rv.onclick=()=>openDecisionReview(x.id);
+    const ed=el('button','iconbtn','✎'); ed.type='button'; ed.title='Edit decision'; ed.setAttribute('aria-label','Edit decision: '+x.title); ed.onclick=()=>openDecisionEditor(x.id);
+    acts.appendChild(rv); acts.appendChild(ed); it.appendChild(acts); return it; }
+  function renderDecisions(wrap){
+    wrap.appendChild(el('div','dc-intro','Write down what you expect and how sure you are. On the review date, record what actually happened. Over time, Insights shows how well your confidence matches reality.'));
+    const add=el('button','primary','+ New decision'); add.type='button'; add.style.marginBottom='8px'; add.onclick=()=>openDecisionEditor(); wrap.appendChild(add);
+    const all=decisions(); if(!all.length){ wrap.appendChild(el('div','empty','No decisions yet. Good candidates are ones you’d like to learn from: a job move, a big purchase, a training plan.')); return; }
+    const waiting=all.filter(x=>!x.outcome&&!isDue(x)).sort((a,b)=>a.reviewOn.localeCompare(b.reviewOn));
+    const done=reviewedDecisions().slice().sort((a,b)=>(b.reviewedOn||'').localeCompare(a.reviewedOn||''));
+    const sec=(label,list)=>{ if(!list.length) return; wrap.appendChild(el('div','jday',esc(label)+' · '+list.length)); list.forEach(x=>wrap.appendChild(decisionItem(x))); };
+    sec('Ready for review',dueDecisions()); sec('Waiting',waiting); sec('Reviewed',done);
+  }
+  function decisionDueCard(){ const due=dueDecisions(); if(!due.length) return null;
+    const card=el('div','tgcard dc-due'); const top=el('div','tg-top');
+    top.appendChild(el('span',null,'⚖️ '+due.length+' decision'+(due.length===1?' is':'s are')+' ready for review'));
+    const all=el('button','ghost','All decisions'); all.type='button'; all.style.cssText='padding:2px 8px; font-size:12px;';
+    all.onclick=()=>{ journalTab='decisions'; data.ui.view='journal'; saveOut(); render(); }; top.appendChild(all); card.appendChild(top);
+    due.slice(0,3).forEach(x=>{ const row=el('div','dc-row'); const t=el('span','dc-t'); t.textContent=x.title; t.title=x.title; row.appendChild(t);
+      const b=el('button','primary','Review'); b.type='button'; b.style.cssText='padding:3px 10px; font-size:12px;'; b.setAttribute('aria-label','Review: '+x.title);
+      b.onclick=()=>openDecisionReview(x.id); row.appendChild(b); card.appendChild(row); });
+    if(due.length>3) card.appendChild(el('div','small','and '+(due.length-3)+' more'));
+    return card; }
+  function calibrationCard(){ const all=decisions(); if(!all.length) return null;
+    const card=el('div','ins-card'); card.appendChild(el('h4',null,'Decision calibration'));
+    const sc=scoredDecisions(), unclear=all.filter(x=>x.outcome==='unclear').length, waiting=all.filter(x=>!x.outcome).length;
+    if(!sc.length){ card.appendChild(el('div','small','No scored reviews yet ('+waiting+' waiting). Your score appears once you record what happened.')); return card; }
+    const b=brier(sc);
+    card.appendChild(el('div','ins-big', b.toFixed(2)+' <span class="small">Brier score</span>'));
+    card.appendChild(el('div','small','From '+sc.length+' scored prediction'+(sc.length===1?'':'s')+'. 0 is perfect. Always answering 50% would score 0.25, so below that your confidence is telling you something.'));
+    if(sc.length<20) card.appendChild(el('div','riskbanner','With fewer than 20 scored predictions this is mostly noise. Keep going before reading much into it.'));
+    const bands=calibrationBands(sc).filter(z=>z.n);
+    if(bands.length){ card.appendChild(el('div','small','When you said…'));
+      bands.forEach(z=>{ const row=el('div','dc-band'); const pct=Math.round(z.hit/z.n*100);
+        row.appendChild(el('span','dc-bl', z.lo+'–'+z.hi+'% (avg '+Math.round(z.sum/z.n)+'%)'));
+        row.appendChild(ibar(pct)); row.appendChild(el('span','dc-bv','came true '+z.hit+' of '+z.n+' ('+pct+'%)')); card.appendChild(row); });
+      card.appendChild(el('div','small','Well calibrated means each band comes true about as often as you said. Predictions under 50% are counted as the opposite claim (30% yes = 70% no).'+(unclear?(' '+unclear+' “can’t tell” review'+(unclear===1?' isn’t':'s aren’t')+' scored.'):''))); }
+    return card; }
+
   function uiConfirm(message,onYes,yesLabel){
     const ov=el('div','overlay'); ov.style.display='flex'; ov.style.zIndex='140';
     const box=el('div','modal'); box.style.maxWidth='360px';
@@ -2117,7 +2309,7 @@ const App = (function () {
   }
 
   return { start(){ const bf=document.getElementById('bootFail'); if(bf) bf.remove(); wire(); SNBridge.init({ debounceSave:250, onNote:(text)=>{ standalone=false; load(text); }, onStandalone:()=>{ standalone=true; load(''); } }); },
-    _test:{ combinedRate, weeklyRates, dowRates, habitMomentum, coOccur, bestPairing, skipCount, journalStats, historyDays, buildAIExport, currentStreak, longestStreak, completionRate, addDays, todayStr,
+    _test:{ brier, calibrationBands, dueDecisions, addMonths, migrate, combinedRate, weeklyRates, dowRates, habitMomentum, coOccur, bestPairing, skipCount, journalStats, historyDays, buildAIExport, currentStreak, longestStreak, completionRate, addDays, todayStr,
       totalXP, levelInfo, totalCompletions, perfectDaysAllTime, earnedAchievements, ensureGamSeed, ACHIEVEMENTS,
       isDoneOn, setLog, metricOf, setMetric, metricAgg, workoutHabits, allWorkouts, collectJournal,
       parseGarminCSV, applyImport, guessHabit, allTimeTotals, _get:()=>data, _set:(d)=>{data=d;} } };
