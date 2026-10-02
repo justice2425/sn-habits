@@ -14,7 +14,7 @@
        SN bridge uses postMessage, which CSP does not govern (see origin checks in SNBridge).
      - base-uri and form-action 'none' stop <base> hijacking and form submissions.
      A meta-tag CSP can't set frame-ancestors; embedding is handled by SNBridge's origin pinning. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-BWpP8xAxAk9ZzQQVY3VK8/Ub+zY103k+1afLf6+hIKI='; style-src 'unsafe-inline' data: https://app.standardnotes.com http://localhost:* http://127.0.0.1:*; font-src data: https://app.standardnotes.com http://localhost:* http://127.0.0.1:*; img-src data: blob: https://app.standardnotes.com http://localhost:* http://127.0.0.1:*; connect-src 'none'; media-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-XCLJalpEL1BUsXteScWBnw+DIMWRJqNonaW3qw6AoAk='; style-src 'unsafe-inline' data: https://app.standardnotes.com http://localhost:* http://127.0.0.1:*; font-src data: https://app.standardnotes.com http://localhost:* http://127.0.0.1:*; img-src data: blob: https://app.standardnotes.com http://localhost:* http://127.0.0.1:*; connect-src 'none'; media-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'" />
 <meta name="referrer" content="no-referrer" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
 <title>Habits</title>
@@ -372,6 +372,116 @@
   .jmood-b:hover { opacity:1; }
   .jmood-b.on { filter:none; opacity:1; border-color:var(--accent); background:var(--panel); }
   .jsearch { width:100%; margin-bottom:10px; }
+  /* daily check-in, weight, experiments, year in review */
+  .tgcard.ci-card { cursor:default; } .tgcard.ci-card:hover { border-color:var(--border); }
+  .ci-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:6px 0; border-top:1px solid var(--border); }
+  .ci-l { flex:0 0 128px; font-size:13px; }
+  .ci-w { width:92px !important; }
+  .ci-note { flex:1 1 150px; font-size:12px; color:var(--muted); }
+  .ci-exp { flex:1 1 220px; font-size:13px; }
+  .ci-on { color:var(--success); font-weight:700; } .ci-off { color:var(--muted); font-weight:700; }
+  .ci-link { padding:2px 8px !important; font-size:12px !important; }
+  .wchart { width:100%; height:160px; display:block; margin:4px 0 2px; }
+  .wc-dot { fill:var(--muted); opacity:.5; }
+  .wc-line { fill:none; stroke:var(--accent); stroke-width:2.5; vector-effect:non-scaling-stroke; }
+  .wc-axis { display:flex; justify-content:space-between; font-size:11px; color:var(--muted); }
+  .wc-top { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .wc-top h4 { flex:1; margin:0; }
+  .ex-item { border-top:1px solid var(--border); padding:8px 0; }
+  .ex-head { display:flex; align-items:center; gap:8px; }
+  .ex-head .t { flex:1; font-weight:600; word-break:break-word; }
+  .ex-res { font-size:13px; margin-top:4px; }
+  .yr-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:8px; }
+  .yr-tile { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:10px 12px; }
+  .yr-tile .n { font-size:21px; font-weight:700; }
+  .yr-tile .l { font-size:12px; color:var(--muted); }
+  .yr-sec { font-size:13px; font-weight:700; margin:12px 0 6px; }
+  .yr-quote { border-left:3px solid var(--accent); padding:4px 10px; font-size:13px; margin:6px 0; white-space:pre-wrap; word-break:break-word; }
+  /* weight tab */
+  .wv-controls { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:12px 0 6px; }
+  .wv-controls select { width:auto; }
+  .wv-chart { position:relative; height:250px; margin:4px 0 6px; outline:none; touch-action:pan-y; user-select:none; -webkit-user-select:none; cursor:crosshair; }
+  .wv-chart:focus-visible { box-shadow:0 0 0 2px var(--accent); border-radius:8px; }
+  .wv-plot { position:absolute; top:8px; left:40px; right:10px; bottom:22px; }
+  .wv-plot svg { position:absolute; left:0; top:0; width:100%; height:100%; overflow:visible; }
+  .wv-grid { stroke:var(--border); stroke-width:1; fill:none; vector-effect:non-scaling-stroke; }
+  .wv-goal { stroke:var(--success); stroke-width:1.5; stroke-dasharray:6 4; fill:none; vector-effect:non-scaling-stroke; }
+  .wv-line { stroke:var(--accent); stroke-width:2.5; fill:none; stroke-linejoin:round; vector-effect:non-scaling-stroke; }
+  .wv-line.bold { stroke-width:3.5; }
+  .wv-dots { stroke:var(--muted); stroke-width:4; stroke-linecap:round; fill:none; opacity:.55; vector-effect:non-scaling-stroke; }
+  .wv-dots.big { stroke:var(--accent); stroke-width:7; opacity:1; }
+  .wv-ylab { position:absolute; left:-40px; width:34px; text-align:right; transform:translateY(-50%); font-size:11px; color:var(--muted); }
+  .wv-xlab { position:absolute; bottom:-19px; transform:translateX(-50%); font-size:11px; color:var(--muted); white-space:nowrap; }
+  .wv-goallab { position:absolute; right:2px; transform:translateY(-115%); font-size:11px; color:var(--success); font-weight:600; }
+  .wv-cross { position:absolute; top:0; bottom:0; width:1px; margin-left:-0.5px; background:var(--muted); opacity:.7; pointer-events:none; }
+  .wv-mark { position:absolute; width:11px; height:11px; margin:-5.5px 0 0 -5.5px; border-radius:50%; background:var(--accent); border:2px solid var(--bg); pointer-events:none; }
+  .wv-tip { position:absolute; top:2px; background:var(--bg); color:var(--fg); border:1px solid var(--border); border-radius:8px; padding:6px 8px; font-size:12px; box-shadow:var(--shadow); pointer-events:none; white-space:nowrap; z-index:2; }
+  .wv-tip-h { font-weight:700; }
+  .wv-chips { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:4px; }
+  .wv-chip { padding:3px 9px !important; border-radius:999px !important; font-size:12px !important; display:inline-flex; align-items:center; gap:5px; }
+  .wv-chip i { width:10px; height:10px; border-radius:50%; display:inline-block; }
+  .wv-chip[aria-pressed="false"] { opacity:.45; }
+  .wv-tile-act { margin-top:6px; padding:2px 8px !important; font-size:12px !important; }
+  .wv-form { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:6px; }
+  .wv-row { display:flex; gap:8px; align-items:center; font-size:13px; padding:4px 0; border-top:1px solid var(--border); }
+  .wv-row .d { flex:1; min-width:0; display:flex; flex-direction:column; }
+  .wv-row .d1 { white-space:nowrap; }
+  .wv-row .d2 { font-size:11.5px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .dc-modal .modal-foot { flex-wrap:wrap; gap:8px; }
+  .dc-modal .modal-foot button { white-space:nowrap; }
+  .dc-modal .modal-foot > span:last-child { margin-left:auto; }
+  /* ---- Phones: one scrollable row of tabs, the date line beside the buttons (moved there by fitHeader), icon-only Undo ---- */
+  @media (max-width:600px){
+    .toolbar { padding:6px 8px; gap:6px; }
+    .toolbar .grow { display:none; }
+    #viewSeg { flex:1 1 100%; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; -webkit-overflow-scrolling:touch; }
+    #viewSeg::-webkit-scrollbar { display:none; }
+    #viewSeg button { flex:0 0 auto; white-space:nowrap; }
+    #viewSeg.more-r { -webkit-mask-image:linear-gradient(to right,#000 80%,transparent); mask-image:linear-gradient(to right,#000 80%,transparent); }
+    #viewSeg.more-l { -webkit-mask-image:linear-gradient(to left,#000 80%,transparent); mask-image:linear-gradient(to left,#000 80%,transparent); }
+    #viewSeg.more-l.more-r { -webkit-mask-image:linear-gradient(to right,transparent,#000 15%,#000 85%,transparent); mask-image:linear-gradient(to right,transparent,#000 15%,#000 85%,transparent); }
+    .toolbar #subhead { flex:1 1 0; min-width:0; padding:0 2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:12.5px; }
+    #undoBtn .lbl { display:none; }
+    .dp-h { flex-wrap:wrap; }
+    .dp-mid { flex:1 1 120px; }
+    .dp-h > button, .dp-h > .counter { margin-left:auto; }
+  }
+  /* ---- Touch screens, whole app: tap targets of at least 44px (Apple's guidance; WCAG 2.2 AA requires 24px) and 16px text in
+     fields so iOS doesn't zoom in on focus. Desktop sizing is unchanged. ---- */
+  @media (pointer:coarse){
+    button, select { min-height:44px; }
+    .iconbtn, #undoBtn, #settingsBtn { min-width:44px; }
+    .seg button { padding:6px 12px; }
+    .bigcheck, .check { width:44px; height:44px; }
+    .counter button { width:44px; height:44px; }
+    .rowmenu-item { min-height:44px; }
+    .jtool { min-width:44px; }
+    .jmood-b { min-width:44px; }
+    .wpill { min-height:40px; padding:8px 14px; }
+    .restpill { display:inline-flex; align-items:center; min-height:36px; padding:4px 12px; }
+    .iconpick button { width:44px; height:44px; font-size:22px; }
+    .swatches button { width:44px; height:44px; }
+    .hrow .ghost { min-width:44px; }
+    .hmain { min-height:44px; }
+    .cell { width:30px; height:30px; }
+    .gridv { grid-template-columns:max-content repeat(21,30px) !important; }
+    .gridv .glabel { min-height:30px; display:flex; align-items:center; }
+    input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]) { min-height:44px; }
+    input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]):not([type=color]), select:not([multiple]), textarea:not([readonly]) { font-size:16px; }   /* :not() lifts specificity above single-class rules like .jbig */
+  }
+  /* touch screens: comfortable tap targets for the newer screens (Apple suggests 44pt; WCAG 2.2 AA requires at least 24px),
+     and 16px text in their fields so iOS doesn't zoom in when one is tapped. Desktop sizing is unchanged. */
+  @media (pointer:coarse){
+    .ci-card button, .weightview button, .weightview select, .weightview input, .dc-tabs button, .jitem .dc-actions button, .ex-item button,
+    .ins-card > button, .ins-card .wc-top button, .dc-modal button, .dc-modal select, .dc-modal input[type=text], .dc-modal input[type=number], .dc-modal input[type=date] { min-height:44px; }
+    .ci-card input { min-height:44px; }
+    .weightview .iconbtn, .jitem .dc-actions .iconbtn, .ex-item .iconbtn, .dc-modal .iconbtn, .weightview .seg button, .dc-tabs button { min-width:44px; }
+    .ci-link, .wv-chip, .dc-picks button, .wv-tile-act { min-height:40px !important; padding:6px 12px !important; }
+    .ci-card .jmood-b { min-width:44px; min-height:44px; font-size:24px; }
+    .dc-conf input[type=range] { height:44px; }
+    .ci-w, .weightview input, .weightview select, .dc-modal input, .dc-modal textarea, .dc-modal select { font-size:16px; }
+    .wv-row { padding:2px 0; }
+  }
   /* decision journal */
   .dc-tabs { margin-bottom:12px; }
   .dc-modal textarea, .dc-modal input[type=text] { width:100%; box-sizing:border-box; }
@@ -407,13 +517,14 @@
       <button data-view="today">Today</button>
       <button data-view="calendar">Calendar</button>
       <button data-view="training">Training</button>
+      <button data-view="weight">Weight</button>
       <button data-view="stats">Stats</button>
       <button data-view="insights">Insights</button>
       <button data-view="journal">Journal</button>
     </div>
     <span class="grow"></span>
     <button class="ghost" id="archBtn" style="display:none;">Archived</button>
-    <button class="ghost" id="undoBtn" title="Undo (Ctrl/Cmd+Z)">↶ Undo</button>
+    <button class="ghost" id="undoBtn" title="Undo (Ctrl/Cmd+Z)" aria-label="Undo">↶<span class="lbl"> Undo</span></button>
     <button class="ghost" id="settingsBtn" title="Settings, export & backup" aria-label="Settings">⚙</button>
     <button class="ghost" id="addBtn">+ Habit</button>
   </div>
@@ -727,7 +838,7 @@ const App = (function () {
   function id(){ return (window.crypto&&crypto.randomUUID)?crypto.randomUUID().slice(0,8):Math.random().toString(36).slice(2,10); }
   // New boards start empty; the Today view offers one-tap suggestions instead of pre-seeding.
   function defaultData(){
-    return { schema:SCHEMA, habits:[], log:{}, notes:{}, metrics:{}, entries:[], decisions:[],
+    return { schema:SCHEMA, habits:[], log:{}, notes:{}, metrics:{}, entries:[], decisions:[], weights:{}, dayRatings:{}, experiments:[],
       ui:{ view:'today', calZoom:'month' }, gam:{},
       settings:{ unit:'mi', weekStart:1, celebrate:true } };
   }
@@ -776,7 +887,8 @@ const App = (function () {
   // Dates are kept only when they are real yyyy-mm-dd within a sensible range; ids/names/colours
   // are coerced to safe strings. A note that has been hand-edited or restored can't take the app down.
   const DKEY=/^\d{4}-\d{2}-\d{2}$/, MIND='1970-01-01', MAXD='2100-12-31', HEXOK=/^#[0-9a-fA-F]{6}$/;
-  const goodDate=k=>typeof k==='string'&&DKEY.test(k)&&k>=MIND&&k<=MAXD&&!isNaN(new Date(k+'T00:00:00'));
+  // Must round-trip: JavaScript silently turns impossible dates such as 2020-02-30 into real ones (Mar 1), which must not be accepted.
+  const goodDate=k=>{ if(typeof k!=='string'||!DKEY.test(k)||k<MIND||k>MAXD) return false; const dt=new Date(k+'T00:00:00'); return !isNaN(dt)&&toISODate(dt)===k; };
   const goodId=v=>typeof v==='string'&&/^[A-Za-z0-9_-]{1,64}$/.test(v)&&v!=='__proto__'&&v!=='constructor'&&v!=='prototype';
   const nInt=(v,lo,hi,d)=>{ const n=Math.round(Number(v)); return Number.isFinite(n)?Math.min(hi,Math.max(lo,n)):d; };
   function pickDateMap(src,valueFn){ const out=Object.create(null); if(src&&typeof src==='object') Object.keys(src).forEach(k=>{ if(goodDate(k)){ const v=valueFn(src[k]); if(v!==undefined) out[k]=v; } }); return Object.keys(out).length?out:undefined; }
@@ -803,6 +915,17 @@ const App = (function () {
     d.metrics=byId(d.metrics,v=>{ if(!v||typeof v!=='object') return undefined; const o={dist:Number(v.dist)||0,min:Number(v.min)||0,rpe:Number(v.rpe)||0}; return (o.dist||o.min||o.rpe)?o:undefined; });
     d.entries=(Array.isArray(d.entries)?d.entries:[]).filter(e=>e&&typeof e==='object'&&goodDate(e.date)&&typeof e.text==='string').slice(0,100000)
       .map(e=>({ id:goodId(e.id)?e.id:id(), date:e.date, text:e.text, mood:nInt(e.mood,0,5,0), prompt:(typeof e.prompt==='string'?e.prompt:'').slice(0,500) }));
+    // Weight (stored in lb, one per day), end-of-day ratings (1-5) and experiments: known fields and types only.
+    d.weights=pickDateMap(d.weights,v=>{ const n=Number(v); return (Number.isFinite(n)&&n>=LB_MIN&&n<=LB_MAX)?Math.round(n*10)/10:undefined; })||{};
+    d.dayRatings=pickDateMap(d.dayRatings,v=>{ const n=Number(v); return (Number.isInteger(n)&&n>=1&&n<=5)?n:undefined; })||{};   // reject, don't clamp, impossible ratings
+    const eIds=new Set();
+    d.experiments=(Array.isArray(d.experiments)?d.experiments:[]).filter(x=>x&&typeof x==='object'&&!Array.isArray(x)&&goodDate(x.start)&&typeof x.name==='string'&&x.name.trim()).slice(0,500).map(x=>{
+      const eid=(goodId(x.id)&&!eIds.has(x.id))?x.id:id(); eIds.add(eid);
+      const outcome=['mood','weight','habit'].includes(x.outcome)?x.outcome:'mood';
+      return { id:eid, name:x.name.slice(0,200), change:(typeof x.change==='string'?x.change:'').slice(0,1000), outcome,
+        habitId:(outcome==='habit'&&goodId(x.habitId))?x.habitId:null, design:x.design==='weeks'?'weeks':'random',
+        start:x.start, days:nInt(x.days,7,365,28), seed:(typeof x.seed==='string'&&/^[0-9a-f]{8,64}$/.test(x.seed))?x.seed:randHex(16),
+        firstOn:x.firstOn!==false, skipped:pickDateMap(x.skipped,v=>v?1:undefined)||{}, ended:goodDate(x.ended)?x.ended:null }; });
     // Decisions: kept to known fields and types, like entries above. Outcome is null until reviewed.
     const dIds=new Set();
     d.decisions=(Array.isArray(d.decisions)?d.decisions:[]).filter(x=>x&&typeof x==='object'&&!Array.isArray(x)&&goodDate(x.date)&&typeof x.title==='string'&&x.title.trim()).slice(0,20000).map(x=>{
@@ -815,7 +938,8 @@ const App = (function () {
         reflection:(typeof x.reflection==='string'?x.reflection:'').slice(0,100000) }; });
     const st=(d.settings&&typeof d.settings==='object'&&!Array.isArray(d.settings))?d.settings:{};
     d.settings={ unit:st.unit==='km'?'km':'mi', weekStart:st.weekStart===0?0:1, celebrate:st.celebrate!==false,
-      goalMin:nInt(st.goalMin,0,10080,0), goalDist:Math.min(100000,Math.max(0,Math.round((Number(st.goalDist)||0)*100)/100)) };
+      goalMin:nInt(st.goalMin,0,10080,0), goalDist:Math.min(100000,Math.max(0,Math.round((Number(st.goalDist)||0)*100)/100)),
+      goalWeight:(()=>{ const n=Number(st.goalWeight); return (Number.isFinite(n)&&n>=LB_MIN&&n<=LB_MAX)?Math.round(n*10)/10:0; })() };
     return d;
   }
   function saveOut(){ const t=JSON.stringify(data); lastSerialized=t; if(standalone){ try{localStorage.setItem('sn-habits-standalone',t);}catch(e){} return; } SNBridge.save(t, previewText()); }
@@ -1011,6 +1135,7 @@ const App = (function () {
     { id:'reflective',  icon:'📓', name:'Reflective',     desc:'Write 10 journal reflections',        earned:()=>journalEntries().length>=10 },
     { id:'decider',     icon:'⚖️', name:'Decider',        desc:'Record a decision to review later',   earned:()=>decisions().length>=1 },
     { id:'hindsight',   icon:'🔭', name:'Hindsight',      desc:'Review 10 decisions',                 earned:()=>reviewedDecisions().length>=10 },
+    { id:'scientist',   icon:'🧪', name:'Scientist',      desc:'Finish a personal experiment',        earned:()=>experiments().some(x=>expStatus(x)==='finished') },
     { id:'level5',      icon:'🏅', name:'Level 5',        desc:'Reach level 5',          quiet:true,  earned:()=>levelInfo(totalXP()).level>=5 },
     { id:'level10',     icon:'👑', name:'Level 10',       desc:'Reach level 10',         quiet:true,  earned:()=>levelInfo(totalXP()).level>=10 },
   ];
@@ -1083,7 +1208,9 @@ const App = (function () {
 
   /* ---- Insights: mood (from the 1–5 faces on journal entries; several entries on a day are averaged) ---- */
   function moodByDay(){ const acc={}; (data.entries||[]).forEach(e=>{ if(e.mood>0){ (acc[e.date]=acc[e.date]||[]).push(e.mood); } });
-    const out={}; Object.keys(acc).forEach(d=>{ out[d]=acc[d].reduce((a,b)=>a+b,0)/acc[d].length; }); return out; }
+    const out={}; Object.keys(acc).forEach(d=>{ out[d]=acc[d].reduce((a,b)=>a+b,0)/acc[d].length; });
+    const r=ratings(); Object.keys(r).forEach(d=>{ out[d]=r[d]; });   // a deliberate whole-day rating outranks journal faces
+    return out; }
   function moodWindow(mb,offset,len){ const today=todayStr(); let s=0,n=0; for(let i=0;i<len;i++){ const d=addDays(today,-(offset+i)); if(mb[d]){ s+=mb[d]; n++; } } return {avg:n?s/n:null,n}; }
   function moodWeekly(mb,nWeeks){ const ws0=startOfWeek(todayStr()); const out=[]; for(let w=nWeeks-1;w>=0;w--){ const ws=addDays(ws0,-7*w); let s=0,n=0; for(let i=0;i<7;i++){ const v=mb[addDays(ws,i)]; if(v){ s+=v; n++; } } out.push({ws,avg:n?s/n:null,n}); } return out; }
   // average mood on days a habit was done vs scheduled-but-not-done (rest days excluded); needs >=3 days on each side
@@ -1140,7 +1267,7 @@ const App = (function () {
 
   /* ---- Optional: package data + journal as plain text to paste into an AI ---- */
   function buildAIExport(){ const act=activeHabits(); const today=todayStr(); const L=[];
-    L.push('You are helping me reflect on my habits and journal. Please read the data below and give me: (1) honest observations about my trends, (2) any patterns linking my habits to how I described my days, and (3) two or three concrete, kind suggestions. Be rigorous and specific; do not flatter me.');
+    L.push('You are helping me reflect on my habits, daily mood ratings, weight and journal. Please read the data below and give me: (1) honest observations about my trends, (2) any patterns linking my habits to how I described my days, and (3) two or three concrete, kind suggestions. Be rigorous and specific; do not flatter me.');
     L.push(''); L.push('=== HABIT DATA (as of '+today+') ===');
     const r14=combinedRate(0,14), p14=combinedRate(14,14);
     L.push('Overall completion of scheduled habits, last 14 days: '+(r14.rate==null?'n/a':r14.rate+'%')+(p14.rate!=null?(' (prior 14 days: '+p14.rate+'%)'):''));
@@ -1151,13 +1278,14 @@ const App = (function () {
     const pair=bestPairing(60); if(pair){ L.push(''); L.push('Co-occurrence: on days I complete '+pair.a.name+', I also complete '+pair.b.name+' '+pair.pct+'% of the time (association, not necessarily cause).'); }
     L.push('Rest/skip days used in the last 30: '+skipCount(30)+'.');
     L.push('Perfect days in the last 30: '+perfectDaysCount(30)+'.');
+    aiExportExtras(L);
     L.push(''); L.push('=== JOURNAL ENTRIES ===');
     const entries=journalEntries().sort((a,b)=>a.date.localeCompare(b.date));
     if(!entries.length) L.push('(none yet)');
     entries.forEach(e=>{ if(!e.hid){ L.push('['+e.date+'] Journal'+(e.mood?(' (mood '+e.mood+'/5)'):'')+': '+e.text); return; } const h=data.habits.find(x=>x.id===e.hid); L.push('['+e.date+'] '+(h?h.name:'?')+' note: '+e.text); });
     return L.join('\n'); }
   function copyText(text,ok){ let done=false; if(window.navigator&&navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(text).then(()=>{done=true;ok&&ok(true);}).catch(fallback); } else fallback();
-    function fallback(){ try{ const ta=document.createElement('textarea'); ta.value=text; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); }catch(e){} if(!done) ok&&ok(false); } }
+    function fallback(){ let r=false; try{ const ta=document.createElement('textarea'); ta.value=text; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.select(); r=document.execCommand('copy'); ta.remove(); }catch(e){} if(!done) ok&&ok(r); } }
 
   /* ---- rendering ---- */
   const $=s=>document.querySelector(s);
@@ -1188,20 +1316,24 @@ const App = (function () {
     if(!data) return;
     if(['grid','month','year'].includes(data.ui.view)){ data.ui.calZoom=data.ui.view; data.ui.view='calendar'; }
     document.querySelectorAll('#viewSeg button').forEach(b=>b.classList.toggle('active', b.dataset.view===data.ui.view));
+    const at=document.querySelector('#viewSeg .active'); if(at&&matchMedia('(max-width:600px)').matches) at.scrollIntoView({block:'nearest',inline:'nearest'}); segFade();
     const ub=$('#undoBtn'); if(ub){ ub.disabled=!undoStack.length; ub.style.opacity=undoStack.length?'1':'.4'; }
     const today=todayStr(); const act=data.habits.filter(h=>!h.archived);
     const due=act.filter(h=>scheduledOn(h,today)&&!isSkipped(h,today)); const done=due.filter(h=>isDoneOn(h,today));
-    let sh = fmtDate(today) + '  ·  ' + done.length + ' of ' + due.length + ' done today';
-    if(due.length && done.length===due.length) sh += '  ·  🎉 perfect day';
+    const narrow=matchMedia('(max-width:600px)').matches;
+    let sh = narrow ? (done.length+'/'+due.length+' done · '+new Date(today+'T00:00:00').toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'}))   // count first: if space runs out, the date is what gets cut
+                    : (fmtDate(today) + '  ·  ' + done.length + ' of ' + due.length + ' done today');
+    if(due.length && done.length===due.length) sh = narrow?('🎉 '+sh):(sh+'  ·  🎉 perfect day');
     $('#subhead').textContent = sh;
     const arch=data.habits.filter(h=>h.archived); const ab=$('#archBtn');
-    if(ab){ if(arch.length){ ab.style.display=''; ab.textContent='Archived ('+arch.length+')'; } else ab.style.display='none'; }
+    if(ab){ if(arch.length){ ab.style.display=''; ab.textContent=narrow?('🗄 '+arch.length):('Archived ('+arch.length+')'); ab.setAttribute('aria-label','Archived habits: '+arch.length); } else ab.style.display='none'; }
     lastRenderDay = today;
     renderStandaloneBanner();
     renderHealthBanner();
     const s=$('#surface'); s.innerHTML='';
     if(data.ui.view==='calendar') s.appendChild(renderCalendar());
     else if(data.ui.view==='training') s.appendChild(renderTraining());
+    else if(data.ui.view==='weight') s.appendChild(renderWeight());
     else if(data.ui.view==='journal') s.appendChild(renderJournal());
     else if(data.ui.view==='stats') s.appendChild(renderStats());
     else if(data.ui.view==='insights') s.appendChild(renderInsights());
@@ -1250,6 +1382,7 @@ const App = (function () {
     const lb=levelBar(); if(gain>0) lb.appendChild(el('span','lv-gain','+'+gain+' XP')); wrap.appendChild(lb);
     const tgc=trainingGoalCard(); if(tgc) wrap.appendChild(tgc);
     const dcc=decisionDueCard(); if(dcc) wrap.appendChild(dcc);
+    wrap.appendChild(checkinCard());
     const dueToday=act.filter(h=>scheduledOn(h,today)&&!isSkipped(h,today));
     const doneToday=dueToday.filter(h=>isDoneOn(h,today));
     if(dueToday.length) wrap.appendChild(progressRing(doneToday.length,dueToday.length));
@@ -1351,6 +1484,7 @@ const App = (function () {
     });
     wrap.appendChild(gv);
     wrap.appendChild(el('div','small','Tap any day to mark it done — handy for backfilling. Outlined square is today. Swipe to see earlier days.'));
+    requestAnimationFrame(()=>{ wrap.scrollLeft=wrap.scrollWidth; });   // start on the most recent days
     return wrap;
   }
 
@@ -1396,6 +1530,7 @@ const App = (function () {
     const wrap=el('div','insights'); const act=activeHabits();
     if(!act.length){ wrap.appendChild(el('div','empty','No habits yet.')); return wrap; }
     wrap.appendChild(el('div','ins-note','These are patterns in your numbers and words — a starting point, not a verdict. The less history you have, the noisier they are.'));
+    wrap.appendChild(yearReviewButton());
     const hist=historyDays();
     if(hist<21) wrap.appendChild(el('div','riskbanner','Only '+hist+' day'+(hist===1?'':'s')+' of history so far — trends get much more reliable after a few weeks of logging.'));
 
@@ -1456,6 +1591,8 @@ const App = (function () {
     }
     wrap.appendChild(s6);
 
+    wrap.appendChild(weightSummaryCard());
+    wrap.appendChild(experimentsCard());
     const cal=calibrationCard(); if(cal) wrap.appendChild(cal);
 
     // G) optional export for AI
@@ -1473,7 +1610,7 @@ const App = (function () {
 
   /* ---- Month calendar: a day-by-day log ---- */
   function entriesOn(iso){ return (data.entries||[]).filter(e=>e.date===iso); }
-  function moodOn(iso){ const ms=entriesOn(iso).map(e=>e.mood).filter(v=>v>0); return ms.length?ms.reduce((a,b)=>a+b,0)/ms.length:0; }
+  function moodOn(iso){ const rt=ratings()[iso]; if(rt) return rt; const ms=entriesOn(iso).map(e=>e.mood).filter(v=>v>0); return ms.length?ms.reduce((a,b)=>a+b,0)/ms.length:0; }
   function moodEmoji(v){ if(!v) return ''; const m=MOODS.find(x=>x.v===Math.round(v)); return m?m.e:''; }
   function dayWorkout(iso){ let m=0,d=0,c=0; workoutHabits().forEach(h=>{ const s=metricOf(h.id,iso); if(s){ m+=(+s.min||0); d+=(+s.dist||0); c++; } }); return {m,d,c}; }
   function shortHours(min){ const h=min/60; return (h<10?Math.round(h*10)/10:Math.round(h))+'h'; }
@@ -2150,6 +2287,393 @@ const App = (function () {
     ov.addEventListener('mousedown',e=>{ if(e.target===ov) ov.remove(); });
   }
 
+  /* ---- Daily check-in: morning weight (stored in lb), end-of-day rating (1-5, the journal's mood scale) ---- */
+  const LB_MIN=50, LB_MAX=1000, KG2LB=2.20462262;
+  const isPlain=v=>!!v&&typeof v==='object'&&!Array.isArray(v);
+  function randHex(nBytes){ const b=crypto.getRandomValues(new Uint8Array(nBytes)); return Array.from(b,x=>x.toString(16).padStart(2,'0')).join(''); }
+  function daysBetweenISO(a,b){ return Math.round((new Date(b+'T00:00:00')-new Date(a+'T00:00:00'))/86400000); }
+  function weights(){ return (data&&data.weights)||{}; }
+  function ratings(){ return (data&&data.dayRatings)||{}; }
+  function setWeight(iso,lb){ data.weights=data.weights||{}; if(lb==null) delete data.weights[iso]; else data.weights[iso]=Math.round(lb*10)/10; }
+  function setRating(iso,v){ data.dayRatings=data.dayRatings||{}; if(!v) delete data.dayRatings[iso]; else data.dayRatings[iso]=v; }
+  function fmtLb(v){ return (Math.round(v*10)/10).toFixed(1); }
+  function weightSeries(){ const w=weights(); return Object.keys(w).sort().map(d=>({d,v:w[d]})); }
+  // Exponentially smoothed trend: each weigh-in moves the trend 10% of the way, so day-to-day water swings fade out.
+  function weightTrend(series){ let t=null; return series.map(p=>{ t=(t==null)?p.v:t+0.1*(p.v-t); return {d:p.d,v:p.v,t}; }); }
+  function trendAt(tr,iso){ let x=null; for(const p of tr){ if(p.d<=iso) x=p; else break; } return x; }
+  function weeklyRate(tr){ if(tr.length<2) return null; const last=tr[tr.length-1]; const past=trendAt(tr,addDays(last.d,-28));
+    if(!past||past===last) return null; const days=daysBetweenISO(past.d,last.d); return days>=14?(last.t-past.t)/days*7:null; }
+
+  function checkinCard(){ const today=todayStr(); const card=el('div','tgcard ci-card');
+    card.appendChild(el('div','tg-top','<span>☀️ Daily check-in</span>'));
+    // weight
+    const wrow=el('div','ci-row'); wrow.appendChild(el('span','ci-l','⚖️ Morning weight'));
+    const cur=weights()[today]; const wi=el('input','ci-w'); wi.type='number'; wi.step='0.1'; wi.min=String(LB_MIN); wi.max=String(LB_MAX);
+    wi.inputMode='decimal'; wi.placeholder='lb'; wi.setAttribute('aria-label','Morning weight in pounds'); if(cur!=null) wi.value=fmtLb(cur);
+    const note=el('span','ci-note'); note.setAttribute('role','status');
+    const tr=weightTrend(weightSeries()); if(tr.length>=2){ const wr=weeklyRate(tr), lt=tr[tr.length-1].t, g=goalWeight(); note.textContent='Trend '+fmtLb(lt)+' lb'+(wr!=null?(' · '+(wr>0?'+':'')+wr.toFixed(1)+' lb/week'):'')
+      +(g!=null?(' · '+(Math.abs(lt-g)<0.5?'at goal':(fmtLb(Math.abs(lt-g))+' lb to goal'))):''); }
+    const saveW=()=>{ const raw=wi.value.trim(); if(raw===''){ if(cur!=null){ setWeight(today,null); persist(); render(); } return; }
+      const v=parseFloat(raw); if(!(v>=LB_MIN&&v<=LB_MAX)){ note.textContent='Enter a weight between '+LB_MIN+' and '+LB_MAX+' lb.'; return; }
+      if(v!==cur){ setWeight(today,v); persist(); render(); } };
+    wi.onchange=saveW; wi.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); wi.blur(); } };
+    const chartBtn=el('button','ghost ci-link','Chart'); chartBtn.type='button'; chartBtn.title='Open the Weight tab'; chartBtn.onclick=()=>{ data.ui.view='weight'; saveOut(); render(); };
+    wrow.appendChild(wi); wrow.appendChild(el('span','small','lb')); wrow.appendChild(chartBtn); wrow.appendChild(note); card.appendChild(wrow);
+    // day rating (and yesterday's, in the morning, if it was missed)
+    const y=addDays(today,-1);
+    if(new Date().getHours()<12 && !ratings()[y]){ const yr=el('div','ci-row'); yr.appendChild(el('span','ci-l','How was yesterday?')); yr.appendChild(moodPicker(0,v=>{ setRating(y,v); persist(); render(); })); card.appendChild(yr); }
+    const rr=el('div','ci-row'); rr.appendChild(el('span','ci-l','How was today?')); rr.appendChild(moodPicker(ratings()[today]||0,v=>{ setRating(today,v); persist(); render(); })); card.appendChild(rr);
+    // experiments running today: show today's assignment only (never future days)
+    experiments().filter(x=>expStatus(x)==='running').forEach(x=>{ const a=expOn(x,today); if(a==null) return;
+      const row=el('div','ci-row'); const t=el('span','ci-exp'); const nm=el('strong'); nm.textContent='🧪 '+x.name+': '; t.appendChild(nm);
+      t.appendChild(el('span',a?'ci-on':'ci-off',a?'ON today':'OFF today')); const ch=el('span','small'); ch.textContent=x.change?(' · '+(a?'Do: ':'Skip: ')+x.change):''; t.appendChild(ch); row.appendChild(t);
+      const sk=!!x.skipped[today]; const b=el('button','ghost ci-link',sk?'Marked as not followed ↺':'Couldn’t follow today'); b.type='button';
+      b.title='Days you couldn’t follow are left out of the results'; b.onclick=()=>{ const cur=experiments().find(z=>z.id===x.id); if(!cur) return; if(cur.skipped[today]) delete cur.skipped[today]; else cur.skipped[today]=1; persist(); render(); };
+      row.appendChild(b); card.appendChild(row); });
+    return card; }
+
+  /* ---- Weight tab: daily / weekly / monthly / year-vs-year charts, goal line, tap-to-read values, editable weigh-ins ----
+     The chart's lines and dots are drawn in an SVG that stretches to fit; every label, the tap marker and the tooltip are
+     ordinary HTML laid over it, so nothing is distorted on narrow screens. Dots are zero-length round-capped strokes for the same reason. */
+  let wvRange='1y', wvMode='daily', wvYoY=null;
+  const WV_RANGES=[['1m','1 mo',30],['3m','3 mo',91],['6m','6 mo',182],['1y','1 yr',365],['all','All',0]];
+  const WV_MODES=[['daily','Daily'],['weekly','Weekly avg'],['monthly','Monthly avg'],['yoy','Year vs year']];
+  function goalWeight(){ const g=settings().goalWeight; return (typeof g==='number'&&g>=LB_MIN&&g<=LB_MAX)?g:null; }
+  function longDate(iso){ return new Date(iso+'T00:00:00').toLocaleDateString(undefined,{weekday:'short',year:'numeric',month:'short',day:'numeric'}); }
+  function monthYear(iso){ return new Date(iso+'T00:00:00').toLocaleDateString(undefined,{year:'numeric',month:'long'}); }
+  const isoMs=d=>Date.parse(d+'T00:00:00Z');
+  // Days to reach the goal at the last 4 weeks' trend rate, or the reason there's no projection.
+  function goalProjection(tr,goal){ if(goal==null||!tr.length) return null; const last=tr[tr.length-1], gap=last.t-goal; if(Math.abs(gap)<0.5) return {gap,at:true};
+    const wr=weeklyRate(tr); if(wr==null) return {gap,why:'No projection yet: it needs a few weeks of recent weigh-ins.'};
+    if(Math.sign(wr)!==Math.sign(-gap)||Math.abs(wr)<0.05) return {gap,why:'No projection: the last 4 weeks’ trend isn’t moving toward the goal.'};
+    const weeks=Math.abs(gap/wr); if(weeks>156) return {gap,why:'More than 3 years away at the last 4 weeks’ rate.'};
+    return {gap,wr,date:addDays(last.d,Math.round(weeks*7))}; }
+  function wvBounds(tr){ const last=tr[tr.length-1].d; if(/^\d{4}$/.test(wvRange)) return {from:wvRange+'-01-01',to:wvRange+'-12-31',year:true};
+    const r=WV_RANGES.find(x=>x[0]===wvRange)||WV_RANGES[3]; return {from:r[2]?addDays(last,-r[2]):tr[0].d,to:last}; }
+  function wvAggregate(pts,mode){ const key=mode==='weekly'?(p=>startOfWeek(p.d)):(p=>p.d.slice(0,7)+'-01'); const g=new Map();
+    pts.forEach(p=>{ const k=key(p); const a=g.get(k)||{s:0,n:0}; a.s+=p.v; a.n++; g.set(k,a); });
+    return [...g.entries()].sort((x,y)=>x[0].localeCompare(y[0])).map(([d,a])=>({d,y:a.s/a.n,n:a.n})); }
+  function niceStep(r){ for(const s of [0.5,1,2,5,10,20,25,50,100]) if(r/s<=6) return s; return 200; }
+  function timeTicks(from,to){ const span=daysBetweenISO(from,to), out=[];
+    if(span<=45){ for(let d=startOfWeek(from); d<=to; d=addDays(d,7)) if(d>=from) out.push({x:isoMs(d),label:new Date(d+'T00:00:00').toLocaleDateString(undefined,{month:'short',day:'numeric'})}); return out; }
+    const stepM=span<=200?1:span<=400?2:span<=800?3:span<=4000?12:24; const cur=new Date(from+'T00:00:00'); cur.setDate(1); if(toISODate(cur)<from) cur.setMonth(cur.getMonth()+1);
+    while(toISODate(cur)<=to){ const m=cur.getMonth(), y=cur.getFullYear(); const keep=stepM<12?(m%stepM===0):(m===0&&y%(stepM/12)===0);
+      if(keep) out.push({x:isoMs(toISODate(cur)),label:stepM>=12?String(y):(stepM===3||m===0)?cur.toLocaleDateString(undefined,{month:'short',year:'2-digit'}):cur.toLocaleDateString(undefined,{month:'short'})});
+      cur.setMonth(cur.getMonth()+1); } return out; }
+  function plotChart(cfg){ const wrap=el('div','wv-chart'); wrap.tabIndex=0; wrap.setAttribute('role','group'); wrap.setAttribute('aria-label',cfg.aria+'. Arrow keys step through the values.');
+    const plot=el('div','wv-plot'); wrap.appendChild(plot);
+    const fx=x=>(x-cfg.xLo)/Math.max(1e-9,cfg.xHi-cfg.xLo), fy=y=>1-(y-cfg.yLo)/Math.max(1e-9,cfg.yHi-cfg.yLo), N=v=>(v*1000).toFixed(1);
+    let svg='<svg viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true">';
+    const step=niceStep(cfg.yHi-cfg.yLo); for(let v=Math.ceil(cfg.yLo/step)*step; v<=cfg.yHi+1e-9; v+=step){ svg+='<path class="wv-grid" d="M0 '+N(fy(v))+'H1000"/>';
+      const lab=el('span','wv-ylab'); lab.textContent=step<1?v.toFixed(1):String(Math.round(v)); lab.style.top=(fy(v)*100)+'%'; plot.appendChild(lab); }
+    (cfg.xTicks||[]).forEach(t=>{ const f=fx(t.x); if(f<0||f>1) return; svg+='<path class="wv-grid" d="M'+N(f)+' 0V1000"/>'; const lab=el('span','wv-xlab'); lab.textContent=t.label; lab.style.left=(f*100)+'%'; plot.appendChild(lab); });
+    if(cfg.goal!=null){ const g=fy(cfg.goal); if(g>=0&&g<=1){ svg+='<path class="wv-goal" d="M0 '+N(g)+'H1000"/>'; const gl=el('span','wv-goallab'); gl.textContent='Goal '+fmtLb(cfg.goal); gl.style.top=(g*100)+'%'; plot.appendChild(gl); } }
+    cfg.series.forEach(s=>{ const st=s.color?(' style="stroke:'+safeColor(s.color)+'"'):'';
+      if(s.dots&&s.pts.length) svg+='<path class="wv-dots'+(s.big?' big':'')+'"'+st+' d="'+s.pts.map(p=>'M'+N(fx(p.x))+' '+N(fy(p.y))+'h0').join('')+'"/>';
+      if(s.line&&s.pts.length>1) svg+='<path class="wv-line'+(s.bold?' bold':'')+'"'+st+' d="'+s.pts.map((p,i)=>(i?'L':'M')+N(fx(p.x))+' '+N(fy(p.y))).join('')+'"/>'; });
+    plot.insertAdjacentHTML('afterbegin',svg+'</svg>');
+    const cross=el('div','wv-cross'), mark=el('div','wv-mark'), tip=el('div','wv-tip'); tip.setAttribute('aria-live','polite'); [cross,mark,tip].forEach(n=>{ n.style.display='none'; plot.appendChild(n); });
+    const items=cfg.items||[]; let idx=-1;
+    const nearest=x=>{ let lo=0,hi=items.length-1; if(hi<0) return -1; while(lo<hi){ const m=(lo+hi)>>1; if(items[m].x<x) lo=m+1; else hi=m; } if(lo>0&&Math.abs(items[lo-1].x-x)<=Math.abs(items[lo].x-x)) lo--; return lo; };
+    const show=i=>{ idx=i; if(i<0){ [cross,mark,tip].forEach(n=>n.style.display='none'); return; } const r=items[i], X=Math.min(100,Math.max(0,fx(r.x)*100));
+      cross.style.left=X+'%'; cross.style.display=''; if(r.y!=null){ mark.style.left=X+'%'; mark.style.top=(fy(r.y)*100)+'%'; mark.style.display=''; } else mark.style.display='none';
+      tip.textContent=''; r.lines.forEach((t,k)=>{ const d=el('div',k?null:'wv-tip-h'); d.textContent=t; tip.appendChild(d); });
+      tip.style.left=X+'%'; tip.style.transform=X>55?'translateX(calc(-100% - 8px))':'translateX(8px)'; tip.style.display=''; };
+    const at=ev=>{ const b=plot.getBoundingClientRect(); if(!b.width) return; const f=Math.min(1,Math.max(0,(ev.clientX-b.left)/b.width)); show(nearest(cfg.xLo+f*(cfg.xHi-cfg.xLo))); };
+    wrap.addEventListener('pointermove',at); wrap.addEventListener('pointerdown',at); wrap.addEventListener('pointerleave',ev=>{ if(ev.pointerType==='mouse') show(-1); });
+    wrap.addEventListener('keydown',ev=>{ if(!items.length) return; const k=ev.key;
+      if(k==='ArrowLeft'||k==='ArrowRight'||k==='Home'||k==='End'){ ev.preventDefault(); show(k==='Home'?0:k==='End'?items.length-1:k==='ArrowLeft'?(idx<0?items.length-1:Math.max(0,idx-1)):(idx<0?items.length-1:Math.min(items.length-1,idx+1))); }
+      else if(k==='Escape'&&idx>=0){ ev.stopPropagation(); show(-1); } });
+    return wrap; }
+  function yPad(lo,hi,goal){ const span=Math.max(hi-lo,2); if(goal!=null&&goal>=lo-span*0.5&&goal<=hi+span*0.5){ lo=Math.min(lo,goal); hi=Math.max(hi,goal); } const p=Math.max((hi-lo)*0.06,0.5); return [lo-p,hi+p]; }
+  function rangeChart(tr,goal){ const box=el('div'); const bd=wvBounds(tr); const pts=tr.filter(p=>p.d>=bd.from&&p.d<=bd.to);
+    if(!pts.length){ box.appendChild(el('div','empty','No weigh-ins in this period.')); return {box,from:bd.from,to:bd.to}; }
+    const daily=wvMode==='daily', agg=daily?null:wvAggregate(pts,wvMode);
+    const [lo,hi]=yPad(Math.min(...(daily?pts.flatMap(p=>[p.v,p.t]):agg.map(a=>a.y))),Math.max(...(daily?pts.flatMap(p=>[p.v,p.t]):agg.map(a=>a.y))),goal);
+    const xFrom=bd.year?bd.from:(wvRange==='all'?pts[0].d:bd.from), xLo=Math.min(isoMs(xFrom),daily?Infinity:isoMs(agg[0].d)), xHi=isoMs(bd.to);
+    const series=daily?[{pts:pts.map(p=>({x:isoMs(p.d),y:p.v})),dots:true},{pts:pts.map(p=>({x:isoMs(p.d),y:p.t})),line:true}]
+      :[{pts:agg.map(a=>({x:isoMs(a.d),y:a.y})),line:true,dots:true,big:true}];
+    const items=daily?pts.map(p=>({x:isoMs(p.d),y:p.v,lines:[longDate(p.d),fmtLb(p.v)+' lb','Trend '+fmtLb(p.t)+' lb']}))
+      :agg.map(a=>({x:isoMs(a.d),y:a.y,lines:[wvMode==='weekly'?('Week of '+dcDate(a.d)):monthYear(a.d),fmtLb(a.y)+' lb average',a.n+' weigh-in'+(a.n===1?'':'s')]}));
+    box.appendChild(plotChart({series,items,xLo,xHi,yLo:lo,yHi:hi,goal,xTicks:timeTicks(xFrom,bd.to),aria:'Weight from '+dcDate(pts[0].d)+' to '+dcDate(pts[pts.length-1].d)}));
+    const f=pts[0], l=pts[pts.length-1], ch=l.t-f.t, low=pts.reduce((a,b)=>b.v<a.v?b:a), high=pts.reduce((a,b)=>b.v>a.v?b:a);
+    box.appendChild(el('div','small','This period: trend '+fmtLb(f.t)+' → '+fmtLb(l.t)+' lb ('+(ch>0?'+':'')+ch.toFixed(1)+') · lowest '+fmtLb(low.v)+' ('+esc(dcDate(low.d))+') · highest '+fmtLb(high.v)+' ('+esc(dcDate(high.d))+') · '+pts.length.toLocaleString()+' weigh-ins.'));
+    return {box,from:bd.from,to:bd.to}; }
+  function yoyChart(tr,years,goal){ const box=el('div'); if(!wvYoY) wvYoY=new Set(years.slice(0,3)); const col=y=>COLORS[years.indexOf(y)%COLORS.length];
+    const chips=el('div','wv-chips'); years.forEach(y=>{ const on=wvYoY.has(y); const c=el('button','ghost wv-chip'); c.type='button'; c.setAttribute('aria-pressed',String(on));
+      const sw=el('i'); sw.style.background=safeColor(col(y)); c.appendChild(sw); c.appendChild(document.createTextNode(y));
+      c.onclick=()=>{ if(on){ if(wvYoY.size>1) wvYoY.delete(y); } else wvYoY.add(y); render(); }; chips.appendChild(c); }); box.appendChild(chips);
+    const doy=iso=>Math.round((Date.UTC(+iso.slice(0,4),+iso.slice(5,7)-1,+iso.slice(8,10))-Date.UTC(+iso.slice(0,4),0,1))/86400000);
+    const vis=years.filter(y=>wvYoY.has(y)), per={};
+    vis.forEach(y=>{ const bins=new Map(); tr.forEach(p=>{ if(p.d.slice(0,4)!==y) return; const k=Math.min(52,Math.floor(doy(p.d)/7)); const a=bins.get(k)||{s:0,n:0}; a.s+=p.v; a.n++; bins.set(k,a); });
+      per[y]=[...bins.entries()].sort((a,b)=>a[0]-b[0]).map(([k,a])=>({k,x:k*7+3,y:a.s/a.n})); });
+    const vals=vis.flatMap(y=>per[y].map(p=>p.y)); if(!vals.length){ box.appendChild(el('div','empty','No weigh-ins in the chosen years.')); return box; }
+    const [lo,hi]=yPad(Math.min(...vals),Math.max(...vals),goal);
+    const series=vis.slice().reverse().map(y=>({pts:per[y],line:true,dots:per[y].length<3,color:col(y),bold:y===vis[0]}));
+    const wk=k=>{ const s=Date.UTC(2001,0,1)+k*7*86400000, e=Math.min(s+6*86400000,Date.UTC(2001,11,31)); const o={month:'short',day:'numeric',timeZone:'UTC'}; return new Date(s).toLocaleDateString(undefined,o)+' – '+new Date(e).toLocaleDateString(undefined,o); };
+    const items=[]; for(let k=0;k<=52;k++){ const ls=vis.map(y=>{ const p=per[y].find(z=>z.k===k); return p?(y+': '+fmtLb(p.y)+' lb'):null; }).filter(Boolean); if(!ls.length) continue;
+      const p0=per[vis[0]].find(z=>z.k===k); items.push({x:k*7+3,y:p0?p0.y:null,lines:[wk(k)].concat(ls)}); }
+    const mStart=[0,31,59,90,120,151,181,212,243,273,304,334], xTicks=mStart.map((x,i)=>({x,label:new Date(Date.UTC(2001,i,1)).toLocaleDateString(undefined,{month:'short',timeZone:'UTC'})}));
+    box.appendChild(plotChart({series,items,xLo:0,xHi:365,yLo:lo,yHi:hi,goal,xTicks,aria:'Weekly average weight by time of year, '+vis.join(', ')}));
+    box.appendChild(el('div','small','Each line is one year’s weekly averages, lined up by time of year. The marker follows '+esc(vis[0])+'.'));
+    return box; }
+  function openGoalWeight(){ const m=dcModal('Goal weight','400px'); const g=goalWeight();
+    const inp=el('input'); inp.type='number'; inp.step='0.1'; inp.min=String(LB_MIN); inp.max=String(LB_MAX); inp.inputMode='decimal'; inp.placeholder='e.g. 165'; if(g!=null) inp.value=fmtLb(g);
+    m.body.appendChild(dcField('Goal (lb)',inp,'Shown as a dashed line on the chart. The projected date assumes the last 4 weeks’ trend continues; real progress is rarely that steady.'));
+    const left=el('span'), right=el('span'); right.style.cssText='display:flex; gap:8px; align-items:center;'; const msg=el('span','small'); msg.setAttribute('role','status');
+    if(g!=null){ const rm=el('button','ghost','Remove goal'); rm.type='button'; rm.onclick=()=>{ data.settings.goalWeight=0; persist(); m.ov.remove(); render(); }; left.appendChild(rm); }
+    const cancel=el('button','ghost','Cancel'); cancel.type='button'; cancel.onclick=()=>m.ov.remove(); const save=el('button','primary','Save'); save.type='button';
+    save.onclick=()=>{ const v=parseFloat(inp.value); if(!(v>=LB_MIN&&v<=LB_MAX)){ msg.textContent='Enter a weight between '+LB_MIN+' and '+LB_MAX+' lb.'; inp.focus(); return; }
+      data.settings.goalWeight=Math.round(v*10)/10; persist(); m.ov.remove(); render(); };
+    right.appendChild(msg); right.appendChild(cancel); right.appendChild(save); m.foot.appendChild(left); m.foot.appendChild(right);
+    dcWire(m,()=>m.ov.remove(),()=>save.click()); setTimeout(()=>inp.focus(),0); }
+  function weighInSection(from,to){ const sec=el('div','ins-card'); sec.appendChild(el('h4',null,'Weigh-ins'));
+    const w=weights(), all=Object.keys(w).sort().reverse(), pos=new Map(all.map((d,i)=>[d,i]));
+    const form=el('div','wv-form'); const di=el('input'); di.type='date'; di.className='jdate'; di.max=todayStr(); di.value=todayStr(); di.setAttribute('aria-label','Weigh-in date');
+    const wi=el('input','ci-w'); wi.type='number'; wi.step='0.1'; wi.min=String(LB_MIN); wi.max=String(LB_MAX); wi.inputMode='decimal'; wi.placeholder='lb'; wi.setAttribute('aria-label','Weight in pounds');
+    const save=el('button','primary','Add'); save.type='button'; const msg=el('span','small'); msg.setAttribute('role','status');
+    const sync=()=>{ const v=weights()[di.value]; save.textContent=(v!=null)?'Update':'Add'; if(v!=null&&!wi.value) wi.value=fmtLb(v); };
+    di.onchange=()=>{ if(!goodDate(di.value)||di.value>todayStr()) di.value=todayStr(); wi.value=''; sync(); };
+    save.onclick=()=>{ const v=parseFloat(wi.value); if(!(v>=LB_MIN&&v<=LB_MAX)){ msg.textContent='Enter a weight between '+LB_MIN+' and '+LB_MAX+' lb.'; wi.focus(); return; } setWeight(di.value,v); persist(); render(); };
+    wi.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); save.click(); } };
+    [di,wi,el('span','small','lb'),save,msg].forEach(n=>form.appendChild(n)); sync(); sec.appendChild(form);
+    const list=all.filter(d=>(!from||d>=from)&&(!to||d<=to));
+    sec.appendChild(el('div','small',list.length.toLocaleString()+' weigh-in'+(list.length===1?'':'s')+(from?' in this period':'')+', newest first. ✎ loads one into the form above; ✕ deletes it (Undo works).'));
+    const box=el('div'); sec.appendChild(box); const more=el('button','ghost','Show 40 more'); more.type='button'; more.style.marginTop='6px'; let shown=0;
+    const add=()=>{ list.slice(shown,shown+40).forEach(d=>{ const row=el('div','wv-row'); const t=el('span','d'); const t1=el('span','d1'); t1.textContent=dcDate(d); t.appendChild(t1);
+        const t2=el('span','d2'); const prev=all[pos.get(d)+1]; let sub=new Date(d+'T00:00:00').toLocaleDateString(undefined,{weekday:'short'});
+        if(prev){ const dv=w[d]-w[prev]; sub+=' · '+(dv>0.05?'+':dv<-0.05?'−':'±')+Math.abs(dv).toFixed(1)+' since '+dcDate(prev).replace(/,? \d{4}$/,''); } t2.textContent=sub; t.appendChild(t2); row.appendChild(t);
+        const v=el('strong'); v.textContent=fmtLb(w[d])+' lb'; row.appendChild(v);
+        const ed=el('button','iconbtn','✎'); ed.type='button'; ed.title='Edit'; ed.setAttribute('aria-label','Edit weigh-in on '+longDate(d)); ed.onclick=()=>{ di.value=d; wi.value=fmtLb(w[d]); sync(); form.scrollIntoView({block:'center'}); wi.focus(); wi.select(); };
+        const x=el('button','iconbtn','✕'); x.type='button'; x.title='Delete'; x.setAttribute('aria-label','Delete weigh-in on '+longDate(d)); x.onclick=()=>{ setWeight(d,null); persist(); render(); };
+        row.appendChild(ed); row.appendChild(x); box.appendChild(row); }); shown+=40; more.style.display=shown<list.length?'':'none'; };
+    more.onclick=add; add(); sec.appendChild(more); return sec; }
+  function importButtonRow(){ const row=el('div'); row.style.cssText='display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:4px 0 12px;';
+    const ib=el('button','ghost','Import weight history (CSV)…'); ib.type='button'; ib.onclick=pickWeightFile; row.appendChild(ib); return row; }
+  function renderWeight(){ const wrap=el('div','weightview'); const tr=weightTrend(weightSeries()), goal=goalWeight();
+    if(!tr.length){ wrap.appendChild(el('div','empty','No weigh-ins yet. Log one on Today each morning, add one below, or import your history.')); wrap.appendChild(weighInSection(null,null)); wrap.appendChild(importButtonRow()); return wrap; }
+    const last=tr[tr.length-1], years=[...new Set(tr.map(p=>p.d.slice(0,4)))].sort().reverse(); if(/^\d{4}$/.test(wvRange)&&!years.includes(wvRange)) wvRange='1y';
+    const tiles=el('div','yr-grid'); const tile=(n,l,extra)=>{ const t=el('div','yr-tile'); const a=el('div','n'); a.textContent=n; const b=el('div','l'); b.textContent=l; t.appendChild(a); t.appendChild(b); if(extra) t.appendChild(extra); tiles.appendChild(t); };
+    const wr=weeklyRate(tr);
+    tile(fmtLb(last.v)+' lb','latest · '+dcDate(last.d)); tile(fmtLb(last.t)+' lb','trend'+(wr!=null?(' · '+(wr>0?'+':'')+wr.toFixed(1)+' lb/week over 4 weeks'):''));
+    const gb=el('button','ghost wv-tile-act',goal!=null?'Edit goal':'Set a goal'); gb.type='button'; gb.onclick=openGoalWeight;
+    if(goal!=null){ const pj=goalProjection(tr,goal); const sub=el('div','small'); sub.style.marginTop='4px'; sub.textContent=pj.at?'You’re within half a pound of it.':pj.date?('On track for about '+monthYear(pj.date)+' at the last 4 weeks’ rate.'):pj.why;
+      const box=el('div'); box.appendChild(sub); box.appendChild(gb); tile(pj.at?'At goal':(fmtLb(Math.abs(pj.gap))+' lb'),pj.at?('goal '+fmtLb(goal)+' lb'):((pj.gap>0?'to lose':'to gain')+' to reach '+fmtLb(goal)+' lb'),box); }
+    else tile('No goal','add one to see a goal line and a projected date',gb);
+    wrap.appendChild(tiles);
+    const ctl=el('div','wv-controls'); const seg=(opts,cur,on,label)=>{ const s=el('div','seg'); s.setAttribute('role','group'); s.setAttribute('aria-label',label);
+      opts.forEach(([k,l])=>{ const b=el('button',cur===k?'active':'',esc(l)); b.type='button'; b.setAttribute('aria-pressed',String(cur===k)); b.onclick=()=>{ on(k); render(); }; s.appendChild(b); }); return s; };
+    ctl.appendChild(seg(WV_MODES,wvMode,k=>{ wvMode=k; },'Chart type'));
+    if(wvMode!=='yoy'){ ctl.appendChild(seg(WV_RANGES.map(r=>[r[0],r[1]]),wvRange,k=>{ wvRange=k; },'Time period'));
+      const ys=el('select'); ys.setAttribute('aria-label','Show one year'); const o0=document.createElement('option'); o0.value=''; o0.textContent='Pick a year…'; ys.appendChild(o0);
+      years.forEach(y=>{ const o=document.createElement('option'); o.value=y; o.textContent=y; ys.appendChild(o); }); ys.value=/^\d{4}$/.test(wvRange)?wvRange:''; ys.onchange=()=>{ if(ys.value){ wvRange=ys.value; render(); } }; ctl.appendChild(ys); }
+    wrap.appendChild(ctl);
+    const card=el('div','ins-card'); let from=null,to=null;
+    if(wvMode==='yoy') card.appendChild(yoyChart(tr,years,goal)); else { const r=rangeChart(tr,goal); card.appendChild(r.box); from=r.from; to=r.to; }
+    card.appendChild(el('div','small','Tap or hover the chart to read values. '+(wvMode==='daily'?'Dots are weigh-ins; the line is the smoothed trend.':'')));
+    wrap.appendChild(card); wrap.appendChild(weighInSection(from,to)); wrap.appendChild(importButtonRow()); return wrap; }
+  function weightSummaryCard(){ const card=el('div','ins-card'); card.appendChild(el('h4',null,'⚖️ Weight')); const tr=weightTrend(weightSeries()); const s=el('div','small');
+    if(tr.length){ const last=tr[tr.length-1], wr=weeklyRate(tr); s.textContent='Trend '+fmtLb(last.t)+' lb'+(wr!=null?(' · '+(wr>0?'+':'')+wr.toFixed(1)+' lb/week over 4 weeks'):'')+'. Charts, goal and history are in the Weight tab.'; }
+    else s.textContent='No weigh-ins yet. The Weight tab has charts, a goal line and import.'; card.appendChild(s);
+    const b=el('button','ghost','Open Weight'); b.type='button'; b.style.marginTop='6px'; b.onclick=()=>{ data.ui.view='weight'; saveOut(); render(); }; card.appendChild(b); return card; }
+  // Find the date and weight columns, read each row, convert kg to lb if the file says kg, and report anything skipped.
+  function parseWeightCSV(text){ const rows=parseCSV(String(text||'').replace(/^\uFEFF/,'')).filter(r=>r.some(c=>String(c).trim()));
+    if(!rows.length) return {error:'That file looks empty.'};
+    let hi=-1, dc=-1, wc=-1, kg=false;
+    for(let i=0;i<Math.min(rows.length,15);i++){ const r=rows[i].map(c=>String(c).trim().toLowerCase());
+      const d=r.findIndex(c=>/(^|\b)(date|day)(\b|$)/.test(c)); const w=r.findIndex(c=>/weight|^lbs?$|^kgs?$|^pounds$|^kilograms$/.test(c)&&!/change|goal|target|diff|delta|loss|gain|bmi/.test(c));
+      if(d>=0&&w>=0&&d!==w){ hi=i; dc=d; wc=w; kg=/\bkgs?\b|kilo/.test(r[w]); break; } }
+    if(hi<0){ const r0=rows[0]; if(r0.length>=2&&toIsoDate(r0[0])&&/\d/.test(r0[1])){ dc=0; wc=1; } else return {error:'Couldn’t find a date column and a weight column in that file.'}; }
+    // Lose It! keeps entries you deleted in its export, flagged in a Deleted column; leave those out.
+    const del=hi>=0?rows[hi].map(c=>String(c).trim().toLowerCase()).findIndex(c=>/^(is[ _]?)?deleted$/.test(c)):-1;
+    const byDay=new Map(); let bad=0, dupes=0, conv=0, deleted=0; const today=todayStr();
+    rows.slice(hi+1).forEach(r=>{ if(del>=0&&/^(true|1|yes|y)$/i.test(String(r[del]==null?'':r[del]).trim())){ deleted++; return; }
+      const ds=r[dc], ws=r[wc]; if(ds==null||ws==null||!String(ds).trim()){ bad++; return; }
+      const iso=toIsoDate(ds); const m=String(ws).match(/-?\d+(?:[.,]\d+)?/); if(!iso||!goodDate(iso)||iso>today||!m){ bad++; return; }
+      let v=parseFloat(m[0].replace(',','.')); if(kg||/kg|kilo/i.test(String(ws))){ v=v*KG2LB; conv++; }
+      if(!(v>=LB_MIN&&v<=LB_MAX)){ bad++; return; } if(byDay.has(iso)) dupes++; byDay.set(iso,Math.round(v*10)/10); });
+    const points=[...byDay.entries()].sort((a,b)=>a[0].localeCompare(b[0])).map(([d,v])=>({d,v}));
+    return { points, bad, dupes, deleted, converted:conv, header:hi>=0?rows[hi]:null, dateCol:dc, weightCol:wc }; }
+  function pickWeightFile(){ const fi=document.createElement('input'); fi.type='file'; fi.accept='.csv,text/csv,text/plain'; fi.style.display='none'; document.body.appendChild(fi);
+    fi.onchange=()=>{ const f=fi.files&&fi.files[0]; fi.remove(); if(!f) return;
+      if(f.size>20*1024*1024){ weightImportModal({error:'That file is over 20 MB, far bigger than a weight history should be, so it wasn’t opened.'}); return; }
+      const rd=new FileReader();
+      rd.onload=()=>{ let p; try{ p=parseWeightCSV(String(rd.result)); }catch(e){ p={error:'Couldn’t read that file as a CSV.'}; } weightImportModal(p); };
+      rd.onerror=()=>weightImportModal({error:'Couldn’t read that file.'}); rd.readAsText(f); }; fi.click(); }
+  function weightImportModal(p){ const m=dcModal('Import weight history','520px');
+    m.body.appendChild(el('div','small','The file is read on this device and nothing is uploaded. Imported weights are saved in this note, encrypted like the rest.'));
+    const left=el('span'), right=el('span'); right.style.cssText='display:flex; gap:8px;'; const cancel=el('button','ghost','Cancel'); cancel.type='button'; cancel.onclick=()=>m.ov.remove();
+    m.foot.appendChild(left); m.foot.appendChild(right); right.appendChild(cancel);
+    if(p.error||!p.points||!p.points.length){ m.body.appendChild(el('div','riskbanner',esc(p.error||'No usable rows found.'))); dcWire(m,()=>m.ov.remove(),()=>m.ov.remove()); return; }
+    const pts=p.points, w=weights(), overlap=pts.filter(x=>w[x.d]!=null).length;
+    const sum=el('div'); sum.innerHTML='<strong>'+pts.length.toLocaleString()+' weigh-ins</strong> from '+esc(dcDate(pts[0].d))+' to '+esc(dcDate(pts[pts.length-1].d))+'.';
+    m.body.appendChild(sum);
+    if(p.header){ const hn=el('div','small'); hn.textContent='Using the columns “'+String(p.header[p.dateCol]).trim()+'” (date) and “'+String(p.header[p.weightCol]).trim()+'” (weight).'; m.body.appendChild(hn); }
+    const notes=[]; if(p.converted) notes.push(p.converted.toLocaleString()+' values were in kg and converted to lb.');
+    if(p.bad) notes.push(p.bad.toLocaleString()+' row'+(p.bad===1?' was':'s were')+' skipped (unreadable date or weight, a future date, or a weight outside '+LB_MIN+'–'+LB_MAX+' lb).');
+    if(p.deleted) notes.push(p.deleted.toLocaleString()+' row'+(p.deleted===1?' was':'s were')+' marked as deleted in the export and left out.');
+    if(p.dupes) notes.push(p.dupes.toLocaleString()+' day'+(p.dupes===1?' had':'s had')+' more than one entry; the last one in the file was kept.');
+    notes.forEach(t=>{ const d=el('div','small'); d.textContent=t; m.body.appendChild(d); });
+    const sample=pts.length<=6?pts:pts.slice(0,3).concat(pts.slice(-3)); const tb=el('div','small'); tb.style.cssText='font-family:ui-monospace,Menlo,monospace; white-space:pre;';
+    tb.textContent='Check these look right:\n'+sample.map(x=>x.d+'   '+fmtLb(x.v)+' lb').join('\n'); m.body.appendChild(tb);
+    let policy='keep';
+    if(overlap){ const f=el('div','field'); f.appendChild(el('label',null,overlap.toLocaleString()+' of these dates already have a weight in Habits')); const seg=el('div','dc-outcomes');
+      [['keep','Keep what’s in Habits'],['replace','Use the file’s values']].forEach(([k,l])=>{ const b=el('button','ghost',l); b.type='button'; b.setAttribute('aria-pressed',String(policy===k));
+        b.onclick=()=>{ policy=k; [...seg.children].forEach(c=>c.setAttribute('aria-pressed',String(c===b))); }; seg.appendChild(b); }); f.appendChild(seg); m.body.appendChild(f); }
+    const go=el('button','primary','Import '+pts.length.toLocaleString()); go.type='button'; right.appendChild(go);
+    go.onclick=()=>{ let n=0; pts.forEach(x=>{ if(policy==='keep'&&weights()[x.d]!=null) return; setWeight(x.d,x.v); n++; }); persist(); m.ov.remove(); render(); uiInfo(n.toLocaleString()+' weigh-ins imported.'); };
+    dcWire(m,()=>m.ov.remove(),()=>go.click()); setTimeout(()=>go.focus(),0); }
+
+  /* ---- Personal experiments ----
+     Each day in the experiment is "on" (make the change) or "off". Random design: balanced blocks of 4 days, two on and two off,
+     chosen from a secret per-experiment seed, so assignments are fixed (undo can't re-roll them) and only today's is shown.
+     Weeks design: whole weeks alternate, for changes whose effects last several days. Results compare the outcome on on vs off
+     days with a bootstrap 95% interval (resampling days, or whole weeks for the weeks design) and need enough data to call it. */
+  const BLOCKS=[[1,1,0,0],[1,0,1,0],[1,0,0,1],[0,1,1,0],[0,1,0,1],[0,0,1,1]];
+  function experiments(){ return (data&&data.experiments)||[]; }
+  function hash32(str){ let h=0x811c9dc5; for(let i=0;i<str.length;i++){ h^=str.charCodeAt(i); h=Math.imul(h,0x01000193); }
+    h^=h>>>15; h=Math.imul(h,0x2c1b3c6d); h^=h>>>12; h=Math.imul(h,0x297a2d39); h^=h>>>15; return h>>>0; }
+  function expEnd(x){ return addDays(x.start,x.days-1); }
+  function expStatus(x){ const t=todayStr(); if(x.ended&&x.ended<t) return 'finished'; if(x.start>t) return 'upcoming'; return expEnd(x)<t?'finished':'running'; }
+  function expOn(x,iso){ const i=daysBetweenISO(x.start,iso); if(i<0||i>=x.days) return null; if(x.ended&&iso>x.ended) return null;
+    if(x.design==='weeks') return ((Math.floor(i/7)%2===0)===x.firstOn)?1:0;
+    return BLOCKS[hash32(x.seed+':'+Math.floor(i/4))%6][i%4]; }
+  function mulberry32(a){ return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+  const meanOf=a=>a.reduce((s,v)=>s+v,0)/a.length;
+  function bootstrapCI(a,b,iters,seed){ const r=mulberry32(seed); const diffs=new Array(iters);
+    const rs=arr=>{ let s=0; for(let i=0;i<arr.length;i++) s+=arr[Math.floor(r()*arr.length)]; return s/arr.length; };
+    for(let k=0;k<iters;k++) diffs[k]=rs(a)-rs(b); diffs.sort((x,y)=>x-y); return [diffs[Math.floor(iters*0.025)], diffs[Math.ceil(iters*0.975)-1]]; }
+  function expOutcomeLabel(x){ if(x.outcome==='weight') return 'next morning’s weight'; if(x.outcome==='habit'){ const h=data.habits.find(z=>z.id===x.habitId); return h?('doing “'+h.name+'”'):'a habit that no longer exists'; } return 'day rating'; }
+  function experimentResults(x){ const mb=moodByDay(), w=weights(), today=todayStr(); const h=x.outcome==='habit'?data.habits.find(z=>z.id===x.habitId):null;
+    const on=[], off=[], onW={}, offW={}; let skipped=0;
+    for(let i=0;i<x.days;i++){ const d=addDays(x.start,i); if(d>today) break; const a=expOn(x,d); if(a==null) continue; if(x.skipped[d]){ skipped++; continue; }
+      let v=null; if(x.outcome==='mood') v=(mb[d]!=null)?mb[d]:null;
+      else if(x.outcome==='weight'){ const nd=addDays(d,1); v=(w[nd]!=null)?w[nd]:null; }
+      else if(h&&d<today&&!isSkipped(h,d)) v=isDoneOn(h,d)?1:0;
+      if(v==null) continue; (a?on:off).push(v); const wk=Math.floor(i/7), bk=a?onW:offW; (bk[wk]=bk[wk]||[]).push(v); }
+    const weeks=x.design==='weeks'; const uOn=weeks?Object.values(onW).map(meanOf):on, uOff=weeks?Object.values(offW).map(meanOf):off; const min=weeks?3:10;
+    const res={ nOn:on.length, nOff:off.length, uOn:uOn.length, uOff:uOff.length, min, unit:weeks?'week':'day', skipped,
+      mOn:uOn.length?meanOf(uOn):null, mOff:uOff.length?meanOf(uOff):null, enough:uOn.length>=min&&uOff.length>=min };
+    if(res.enough){ res.diff=res.mOn-res.mOff; res.ci=bootstrapCI(uOn,uOff,4000,hash32(x.seed+':boot')); }
+    return res; }
+  function expResultText(x){ const r=experimentResults(x); const f=v=>x.outcome==='weight'?fmtLb(v)+' lb':x.outcome==='habit'?Math.round(v*100)+'%':v.toFixed(2);
+    const fd=v=>x.outcome==='weight'?((v>0?'+':'')+v.toFixed(1)+' lb'):x.outcome==='habit'?((v>0?'+':'')+Math.round(v*100)+' points'):((v>0?'+':'')+v.toFixed(2));
+    if(r.mOn==null&&r.mOff==null) return 'No data yet for '+expOutcomeLabel(x)+'.';
+    let s='Average '+expOutcomeLabel(x)+': '+(r.mOn!=null?f(r.mOn):'—')+' on “on” days vs '+(r.mOff!=null?f(r.mOff):'—')+' on “off” days.';
+    if(!r.enough) return s+' Too early to call: '+r.uOn+' on and '+r.uOff+' off '+r.unit+'s with data so far; each needs at least '+r.min+'.'+(r.skipped?(' '+r.skipped+' day'+(r.skipped===1?'':'s')+' left out as not followed.'):'');
+    const clear=r.ci[0]>0||r.ci[1]<0;
+    return s+' Difference '+fd(r.diff)+' (95% interval '+fd(r.ci[0])+' to '+fd(r.ci[1])+'). '+(clear?'That’s a clear difference over this experiment.':'No clear difference: the interval includes zero.')+(r.skipped?(' '+r.skipped+' day'+(r.skipped===1?'':'s')+' left out as not followed.'):''); }
+  function experimentsCard(){ const card=el('div','ins-card'); card.appendChild(el('h4',null,'🧪 Personal experiments'));
+    const xs=experiments().slice().sort((a,b)=>{ const o={running:0,upcoming:1,finished:2}; return (o[expStatus(a)]-o[expStatus(b)])||b.start.localeCompare(a.start); });
+    if(!xs.length) card.appendChild(el('div','small','Test a change on yourself: each day the app tells you whether it’s an “on” or “off” day, and compares how your days turn out.'));
+    xs.forEach(x=>{ const it=el('div','ex-item'); const hd=el('div','ex-head'); const t=el('span','t'); t.textContent=x.name; hd.appendChild(t);
+      const st=expStatus(x), i=daysBetweenISO(x.start,todayStr())+1;
+      hd.appendChild(el('span','small', st==='running'?('Day '+i+' of '+x.days):st==='upcoming'?('Starts '+esc(dcDate(x.start))):('Finished '+esc(dcDate(x.ended&&x.ended<expEnd(x)?x.ended:expEnd(x))))));
+      const ed=el('button','iconbtn','✎'); ed.type='button'; ed.title='Edit experiment'; ed.setAttribute('aria-label','Edit experiment: '+x.name); ed.onclick=()=>openExperimentEditor(x.id); hd.appendChild(ed); it.appendChild(hd);
+      if(x.change){ const c=el('div','small'); c.textContent='On days: '+x.change+' · '+(x.design==='weeks'?'alternating weeks':'random days'); it.appendChild(c); }
+      const rs=el('div','ex-res'); rs.textContent=st==='upcoming'?'Not started yet.':expResultText(x); it.appendChild(rs); card.appendChild(it); });
+    if(xs.length) card.appendChild(el('div','small','You know which days are “on”, so expectations can colour a mood rating, and other things in life change too. Treat results as evidence about you, not proof.'));
+    const nb=el('button','ghost','+ New experiment'); nb.type='button'; nb.style.marginTop='8px'; nb.onclick=()=>openExperimentEditor(); card.appendChild(nb);
+    return card; }
+  function openExperimentEditor(eid){ const ex=eid?experiments().find(x=>x.id===eid):null; if(eid&&!ex) return; const started=!!(ex&&ex.start<=todayStr());
+    const st={ name:ex?ex.name:'', change:ex?ex.change:'', outcome:ex?(ex.outcome==='habit'?'habit:'+ex.habitId:ex.outcome):'mood', design:ex?ex.design:'random', days:ex?ex.days:28, start:ex?ex.start:todayStr() };
+    const startJ=JSON.stringify(st); const m=dcModal(ex?'Edit experiment':'New experiment');
+    const nm=el('input'); nm.type='text'; nm.maxLength=200; nm.placeholder='e.g. Evening ride → better days?'; nm.value=st.name; nm.oninput=()=>{ st.name=nm.value; }; m.body.appendChild(dcField('Name',nm));
+    const ch=el('input'); ch.type='text'; ch.maxLength=1000; ch.placeholder='e.g. Ride 30+ minutes after work'; ch.value=st.change; ch.oninput=()=>{ st.change=ch.value; };
+    m.body.appendChild(dcField('On “on” days I will…',ch));
+    const sel=(opts,val,on)=>{ const s=el('select'); opts.forEach(([v,l])=>{ const o=document.createElement('option'); o.value=v; o.textContent=l; s.appendChild(o); }); s.value=val; s.onchange=()=>on(s.value); s.disabled=started; return s; };
+    const outs=[['mood','My day rating (same day)'],['weight','My next-morning weight']].concat(data.habits.filter(h=>!h.archived).map(h=>['habit:'+h.id,'Whether I do “'+h.name+'” (same day)']));
+    m.body.appendChild(dcField('Measure',sel(outs,st.outcome,v=>{ st.outcome=v; })));
+    const lenSel=sel([],String(st.days),v=>{ st.days=+v; });
+    const fillLen=()=>{ lenSel.innerHTML=''; const opts=st.design==='weeks'?[42,56,84]:[28,42,56,84]; if(!opts.includes(st.days)) st.days=opts[0];
+      opts.forEach(n=>{ const o=document.createElement('option'); o.value=String(n); o.textContent=(n/7)+' weeks'; lenSel.appendChild(o); }); lenSel.value=String(st.days); };
+    m.body.appendChild(dcField('Schedule',sel([['random','Random days, balanced (recommended)'],['weeks','Alternating weeks (effects that last days)']],st.design,v=>{ st.design=v; fillLen(); }),
+      'You only ever see today’s assignment, on Today. Random days guard best against coincidences such as a busy month; use weeks for something like a caffeine cut-off whose effects carry over.'));
+    fillLen(); m.body.appendChild(dcField('Length',lenSel));
+    const sd=el('input'); sd.type='date'; sd.className='jdate'; sd.min=todayStr(); sd.value=st.start; sd.disabled=started; sd.onchange=()=>{ if(goodDate(sd.value)&&sd.value>=todayStr()) st.start=sd.value; else sd.value=st.start; };
+    m.body.appendChild(dcField('Start',sd, started?'Measure, schedule, length and start are locked once an experiment starts, so the result stays honest.':null));
+    const left=el('span'), right=el('span'); right.style.cssText='display:flex; gap:8px; align-items:center;'; const msg=el('span','small'); msg.setAttribute('role','status');
+    if(ex){ const del=el('button','danger','Delete'); del.type='button'; del.onclick=()=>uiConfirm('Delete this experiment and its results?',()=>{ data.experiments=experiments().filter(x=>x.id!==ex.id); persist(); m.ov.remove(); render(); }); left.appendChild(del);
+      if(expStatus(ex)==='running'){ const end=el('button','ghost','End now'); end.type='button'; end.style.marginLeft='6px'; end.onclick=()=>uiConfirm('End this experiment today? Results so far are kept.',()=>{ const cur=experiments().find(x=>x.id===ex.id); if(cur){ cur.ended=todayStr(); persist(); } m.ov.remove(); render(); },'End now'); left.appendChild(end); } }
+    const cancel=el('button','ghost','Cancel'); cancel.type='button'; const save=el('button','primary',ex?'Save':'Start experiment'); save.type='button';
+    right.appendChild(msg); right.appendChild(cancel); right.appendChild(save); m.foot.appendChild(left); m.foot.appendChild(right);
+    const tryClose=()=>{ if(JSON.stringify(st)!==startJ) uiConfirm('Discard your changes?',()=>m.ov.remove(),'Discard'); else m.ov.remove(); }; cancel.onclick=tryClose;
+    save.onclick=()=>{ const n=st.name.trim(); if(!n){ msg.textContent='Give it a name.'; nm.focus(); return; }
+      const outcome=st.outcome.startsWith('habit:')?'habit':st.outcome, habitId=outcome==='habit'?st.outcome.slice(6):null;
+      if(ex){ const cur=experiments().find(x=>x.id===ex.id); if(!cur){ msg.textContent='This experiment no longer exists (was it undone?).'; return; }
+        cur.name=n.slice(0,200); cur.change=st.change.trim().slice(0,1000); if(!started){ Object.assign(cur,{outcome,habitId,design:st.design,days:st.days,start:st.start}); } }
+      else { data.experiments=experiments().slice(); data.experiments.push({ id:id(), name:n.slice(0,200), change:st.change.trim().slice(0,1000), outcome, habitId, design:st.design, days:st.days,
+        start:st.start, seed:randHex(16), firstOn:(crypto.getRandomValues(new Uint8Array(1))[0]&1)===1, skipped:{}, ended:null }); }
+      persist(); m.ov.remove(); render(); };
+    dcWire(m,tryClose,()=>save.click()); setTimeout(()=>nm.focus(),0); }
+
+  /* ---- Year in review ---- */
+  function dataYears(){ const ys=new Set([todayStr().slice(0,4)]); const add=d=>{ if(typeof d==='string'&&DKEY.test(d)) ys.add(d.slice(0,4)); };
+    Object.keys(data.log||{}).forEach(h=>Object.keys(data.log[h]||{}).forEach(add)); (data.entries||[]).forEach(e=>add(e.date));
+    Object.keys(weights()).forEach(add); Object.keys(ratings()).forEach(add); decisions().forEach(x=>add(x.date)); return [...ys].sort().reverse(); }
+  function habitStart(h){ let s=(typeof h.createdAt==='string'&&goodDate(h.createdAt.slice(0,10)))?h.createdAt.slice(0,10):todayStr(); Object.keys(data.log[h.id]||{}).forEach(k=>{ if(k<s) s=k; }); return s; }
+  function yearStats(Y){ const y=String(Y), from=y+'-01-01', today=todayStr(), to=(y===today.slice(0,4))?today:y+'-12-31'; const R={ y, from, to, partial:to===today&&y===today.slice(0,4) };
+    const starts=new Map(data.habits.map(h=>[h.id,habitStart(h)])); let completions=0; const per=[];
+    data.habits.forEach(h=>{ const st=starts.get(h.id); let sched=0,done=0; if(st<=to) for(let d=(st>from?st:from); d<=to; d=addDays(d,1)){ if(scheduledOn(h,d)&&!isSkipped(h,d)){ sched++; if(isDoneOn(h,d)) done++; } }
+      const cnt=Object.keys(data.log[h.id]||{}).filter(k=>k>=from&&k<=to&&isDoneOn(h,k)).length; completions+=cnt; per.push({h,sched,done,cnt}); });
+    R.completions=completions; const daily=per.filter(p=>(p.h.schedule||{}).type!=='weekly'&&p.sched>=30);
+    R.mostConsistent=daily.sort((a,b)=>b.done/b.sched-a.done/a.sched)[0]||null; R.mostDone=per.slice().sort((a,b)=>b.cnt-a.cnt)[0]; if(R.mostDone&&!R.mostDone.cnt) R.mostDone=null;
+    let perfect=0; const act=data.habits.filter(h=>!h.archived); for(let d=from; d<=to; d=addDays(d,1)){ const due=act.filter(h=>dueOnStrict(h,d)&&starts.get(h.id)<=d); if(due.length&&due.every(h=>isDoneOn(h,d))) perfect++; } R.perfect=perfect;
+    let wc=0,wm=0,wd=0; Object.keys(data.metrics||{}).forEach(hid=>{ const mm=data.metrics[hid]||{}; Object.keys(mm).forEach(d=>{ if(d>=from&&d<=to){ const m=mm[d]; if(m&&((+m.dist>0)||(+m.min>0))){ wc++; wm+=(+m.min||0); wd+=(+m.dist||0); } } }); }); R.train={count:wc,min:wm,dist:wd};
+    const tr=weightTrend(weightSeries()), inY=tr.filter(p=>p.d>=from&&p.d<=to);
+    if(inY.length){ const pre=trendAt(tr,addDays(from,-1)); R.weight={ n:inY.length, first:inY[0], last:inY[inY.length-1], startTrend:(pre||inY[0]).t, endTrend:inY[inY.length-1].t,
+      low:inY.reduce((a,b)=>b.v<a.v?b:a), high:inY.reduce((a,b)=>b.v>a.v?b:a) }; }
+    const mb=moodByDay(), md=Object.keys(mb).filter(d=>d>=from&&d<=to); if(md.length){ R.mood={ n:md.length, avg:meanOf(md.map(d=>mb[d])) }; const byM={};
+      md.forEach(d=>{ const k=d.slice(0,7); (byM[k]=byM[k]||[]).push(mb[d]); }); const ms=Object.keys(byM).filter(k=>byM[k].length>=5).map(k=>({k,avg:meanOf(byM[k]),n:byM[k].length}));
+      if(ms.length>=2){ ms.sort((a,b)=>b.avg-a.avg); R.mood.best=ms[0]; R.mood.worst=ms[ms.length-1]; } }
+    const ent=(data.entries||[]).filter(e=>e.date>=from&&e.date<=to); R.journal={ n:ent.length, words:ent.reduce((s,e)=>s+wordCount(e.text),0) };
+    R.bright=ent.filter(e=>mb[e.date]>=5&&(e.text||'').trim()).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
+    R.decisions={ made:decisions().filter(x=>x.date>=from&&x.date<=to).length, reviewed:decisions().filter(x=>x.reviewedOn&&x.reviewedOn>=from&&x.reviewedOn<=to).length };
+    R.experiments=experiments().filter(x=>x.start>=from&&x.start<=to&&expStatus(x)!=='upcoming'); return R; }
+  function monthName(k){ return new Date(k+'-01T00:00:00').toLocaleDateString(undefined,{month:'long'}); }
+  function yearText(R){ const L=[]; L.push('YEAR IN REVIEW '+R.y+(R.partial?(' (to '+R.to+')'):''));
+    L.push('Habit completions: '+R.completions+'; perfect days: '+R.perfect+(R.mostConsistent?('; most consistent: '+R.mostConsistent.h.name+' ('+Math.round(R.mostConsistent.done/R.mostConsistent.sched*100)+'% of scheduled days)'):'')+(R.mostDone?('; most done: '+R.mostDone.h.name+' ('+R.mostDone.cnt+' times)'):''));
+    if(R.train.count) L.push('Training: '+R.train.count+' workouts, '+fmtDur(R.train.min)+', '+distStr(R.train.dist));
+    if(R.weight) L.push('Weight: '+fmtLb(R.weight.first.v)+' lb ('+R.weight.first.d+') to '+fmtLb(R.weight.last.v)+' lb ('+R.weight.last.d+'); trend '+fmtLb(R.weight.startTrend)+' to '+fmtLb(R.weight.endTrend)+' lb; range '+fmtLb(R.weight.low.v)+'–'+fmtLb(R.weight.high.v)+' lb; '+R.weight.n+' weigh-ins');
+    if(R.mood) L.push('Mood: average '+R.mood.avg.toFixed(2)+'/5 over '+R.mood.n+' rated days'+(R.mood.best?('; best month '+monthName(R.mood.best.k)+' ('+R.mood.best.avg.toFixed(2)+'), toughest '+monthName(R.mood.worst.k)+' ('+R.mood.worst.avg.toFixed(2)+')'):''));
+    L.push('Journal: '+R.journal.n+' entries, '+R.journal.words+' words. Decisions: '+R.decisions.made+' made, '+R.decisions.reviewed+' reviewed.');
+    R.experiments.forEach(x=>L.push('Experiment "'+x.name+'": '+expResultText(x))); return L.join('\n'); }
+  function yearReviewButton(){ const row=el('div'); row.style.cssText='display:flex; justify-content:flex-end; margin-bottom:10px;';
+    const b=el('button','ghost','🎉 Year in review'); b.type='button'; b.onclick=()=>openYearReview(todayStr().slice(0,4)); row.appendChild(b); return row; }
+  function openYearReview(Y){ const R=yearStats(Y); const m=dcModal('Year in review','640px');
+    const top=el('div'); top.style.cssText='display:flex; align-items:center; gap:8px;'; const ys=el('select'); ys.setAttribute('aria-label','Year');
+    dataYears().forEach(y=>{ const o=document.createElement('option'); o.value=y; o.textContent=y; ys.appendChild(o); }); ys.value=R.y; ys.style.width='auto';
+    ys.onchange=()=>{ m.ov.remove(); openYearReview(ys.value); }; top.appendChild(el('strong',null,'Your '+esc(R.y)+(R.partial?' so far':''))); const sp=el('span'); sp.style.flex='1'; top.appendChild(sp); top.appendChild(ys); m.body.appendChild(top);
+    const tile=(n,l)=>{ const t=el('div','yr-tile'); const a=el('div','n'); a.textContent=n; const b=el('div','l'); b.textContent=l; t.appendChild(a); t.appendChild(b); return t; };
+    const sec=(title,tiles)=>{ if(!tiles.length) return; m.body.appendChild(el('div','yr-sec',esc(title))); const g=el('div','yr-grid'); tiles.forEach(t=>g.appendChild(t)); m.body.appendChild(g); };
+    const H=[tile(R.completions.toLocaleString(),'habit completions'), tile(String(R.perfect),'perfect days')];
+    if(R.mostConsistent) H.push(tile(Math.round(R.mostConsistent.done/R.mostConsistent.sched*100)+'%','most consistent: '+R.mostConsistent.h.name));
+    if(R.mostDone) H.push(tile(String(R.mostDone.cnt),'most done: '+R.mostDone.h.name)); sec('Habits',H);
+    if(R.train.count) sec('Training',[tile(String(R.train.count),'workouts'), tile(fmtDur(R.train.min),'time'), tile(distStr(R.train.dist,true),'distance')]);
+    if(R.weight){ const ch=R.weight.endTrend-R.weight.startTrend; sec('Weight',[tile((ch>0?'+':'')+ch.toFixed(1)+' lb','trend change'), tile(fmtLb(R.weight.endTrend)+' lb','trend now'),
+      tile(fmtLb(R.weight.low.v)+'–'+fmtLb(R.weight.high.v),'range (lb)'), tile(R.weight.n.toLocaleString(),'weigh-ins')]); }
+    if(R.mood){ const M=[tile(R.mood.avg.toFixed(1)+' / 5','average day ('+R.mood.n+' rated)')]; if(R.mood.best){ M.push(tile(monthName(R.mood.best.k),'best month ('+R.mood.best.avg.toFixed(1)+')')); M.push(tile(monthName(R.mood.worst.k),'toughest month ('+R.mood.worst.avg.toFixed(1)+')')); } sec('Mood',M); }
+    sec('Reflection',[tile(String(R.journal.n),'journal entries'), tile(R.journal.words.toLocaleString(),'words written'), tile(String(R.decisions.made),'decisions made'), tile(String(R.decisions.reviewed),'decisions reviewed')]);
+    if(R.experiments.length){ m.body.appendChild(el('div','yr-sec','Experiments')); R.experiments.forEach(x=>{ const d=el('div','small'); d.textContent=x.name+': '+expResultText(x); m.body.appendChild(d); }); }
+    if(R.bright.length){ m.body.appendChild(el('div','yr-sec','From your best days')); R.bright.forEach(e=>{ const q=el('div','yr-quote'); const t=e.text.trim(); q.textContent=dcDate(e.date)+' · '+(t.length>220?t.slice(0,220)+'…':t); m.body.appendChild(q); }); }
+    const left=el('span'), right=el('span'); right.style.cssText='display:flex; gap:8px; align-items:center;'; const msg=el('span','small');
+    const cp=el('button','ghost','Copy as text'); cp.type='button'; cp.onclick=()=>copyText(yearText(R),ok=>{ msg.textContent=ok?'Copied ✓':'Copy failed'; setTimeout(()=>msg.textContent='',2500); });
+    const done=el('button','primary','Close'); done.type='button'; done.onclick=()=>m.ov.remove(); right.appendChild(msg); right.appendChild(cp); right.appendChild(done); m.foot.appendChild(left); m.foot.appendChild(right);
+    dcWire(m,()=>m.ov.remove(),()=>m.ov.remove()); }
+
+  /* ---- extra sections for the AI export ---- */
+  function aiExportExtras(L){ const today=todayStr(), mb=moodByDay(), w=weights(), act=activeHabits();
+    L.push(''); L.push('=== DAILY LOG, LAST 90 DAYS (date | day mood 1-5: end-of-day rating, else journal mood | morning weight lb | habits done/due | workout minutes) ===');
+    for(let i=89;i>=0;i--){ const d=addDays(today,-i); const due=act.filter(h=>dueOnStrict(h,d)&&!isSkipped(h,d)); const dn=due.filter(h=>isDoneOn(h,d)).length;
+      let mins=0; Object.keys(data.metrics||{}).forEach(hid=>{ const mm=(data.metrics[hid]||{})[d]; if(mm) mins+=(+mm.min||0); });
+      L.push(d+' | '+(mb[d]!=null?(Math.round(mb[d]*10)/10):'-')+' | '+(w[d]!=null?fmtLb(w[d]):'-')+' | '+dn+'/'+due.length+' | '+Math.round(mins)); }
+    const ser=weightSeries(); if(ser.length){ L.push(''); L.push('=== WEIGHT, MONTHLY AVERAGES (all history, lb) ==='); const gw=goalWeight(); if(gw!=null) L.push('Goal weight: '+fmtLb(gw)+' lb'); const byM={}; ser.forEach(p=>{ const k=p.d.slice(0,7); (byM[k]=byM[k]||[]).push(p.v); });
+      Object.keys(byM).sort().forEach(k=>L.push(k+': '+fmtLb(meanOf(byM[k]))+' (n='+byM[k].length+')')); }
+    const xs=experiments().filter(x=>expStatus(x)!=='upcoming'); if(xs.length){ L.push(''); L.push('=== PERSONAL EXPERIMENTS ===');
+      xs.forEach(x=>L.push('- "'+x.name+'" ('+x.start+', '+x.days+' days, '+(x.design==='weeks'?'alternating weeks':'random balanced days')+', '+expStatus(x)+'). On days: '+(x.change||'-')+'. '+expResultText(x))); }
+    const ds=decisions(); if(ds.length){ L.push(''); L.push('=== DECISIONS (prediction, stated confidence, outcome) ===');
+      ds.slice().sort((a,b)=>a.date.localeCompare(b.date)).forEach(x=>L.push('- ['+x.date+'] '+x.title+(x.prediction?(': expected "'+x.prediction+'"'):'')+' at '+x.conf+'%; '+(x.outcome?('outcome: '+OUTCOME_LABEL[x.outcome]+(x.reflection?('; reflection: '+x.reflection):'')):'not reviewed yet'))); } }
+
   /* ---- Decision journal ----
      Write down a decision, what you expect to happen and how sure you are (1–99%), and a review date.
      On that date Today asks what happened. Insights scores calibration with the Brier score.
@@ -2298,6 +2822,12 @@ const App = (function () {
       card.appendChild(el('div','small','Well calibrated means each band comes true about as often as you said. Predictions under 50% are counted as the opposite claim (30% yes = 70% no).'+(unclear?(' '+unclear+' “can’t tell” review'+(unclear===1?' isn’t':'s aren’t')+' scored.'):''))); }
     return card; }
 
+  // Phones: move the date line up beside the toolbar buttons and fade the tab strip's edges when there are more tabs to scroll to.
+  function segFade(){ const s=document.getElementById('viewSeg'); if(!s) return; s.classList.toggle('more-r', s.scrollLeft+s.clientWidth<s.scrollWidth-2); s.classList.toggle('more-l', s.scrollLeft>2); }
+  function fitHeader(){ const tb=document.querySelector('.toolbar'), sh=document.getElementById('subhead'); if(!tb||!sh) return; const narrow=matchMedia('(max-width:600px)').matches;
+    if(narrow&&sh.parentNode!==tb) tb.insertBefore(sh,tb.querySelector('.grow')); else if(!narrow&&sh.parentNode===tb) tb.parentNode.insertBefore(sh,tb.nextSibling);
+    if(data) render(); else segFade(); }
+
   function uiConfirm(message,onYes,yesLabel){
     const ov=el('div','overlay'); ov.style.display='flex'; ov.style.zIndex='140';
     const box=el('div','modal'); box.style.maxWidth='360px';
@@ -2308,8 +2838,10 @@ const App = (function () {
     cancel.onclick=()=>ov.remove(); ov.addEventListener('mousedown',e=>{ if(e.target===ov) ov.remove(); }); yes.onclick=()=>{ ov.remove(); onYes(); };
   }
 
-  return { start(){ const bf=document.getElementById('bootFail'); if(bf) bf.remove(); wire(); SNBridge.init({ debounceSave:250, onNote:(text)=>{ standalone=false; load(text); }, onStandalone:()=>{ standalone=true; load(''); } }); },
-    _test:{ brier, calibrationBands, dueDecisions, addMonths, migrate, combinedRate, weeklyRates, dowRates, habitMomentum, coOccur, bestPairing, skipCount, journalStats, historyDays, buildAIExport, currentStreak, longestStreak, completionRate, addDays, todayStr,
+  return { start(){ const bf=document.getElementById('bootFail'); if(bf) bf.remove(); wire();
+      const vs=document.getElementById('viewSeg'); if(vs) vs.addEventListener('scroll',segFade,{passive:true}); window.addEventListener('resize',segFade);
+      const mq=matchMedia('(max-width:600px)'); if(mq.addEventListener) mq.addEventListener('change',fitHeader); fitHeader(); SNBridge.init({ debounceSave:250, onNote:(text)=>{ standalone=false; load(text); }, onStandalone:()=>{ standalone=true; load(''); } }); },
+    _test:{ goalProjection, wvAggregate, timeTicks, parseWeightCSV, weightTrend, weeklyRate, expOn, experimentResults, expResultText, yearStats, yearText, moodByDay, bootstrapCI, brier, calibrationBands, dueDecisions, addMonths, migrate, combinedRate, weeklyRates, dowRates, habitMomentum, coOccur, bestPairing, skipCount, journalStats, historyDays, buildAIExport, currentStreak, longestStreak, completionRate, addDays, todayStr,
       totalXP, levelInfo, totalCompletions, perfectDaysAllTime, earnedAchievements, ensureGamSeed, ACHIEVEMENTS,
       isDoneOn, setLog, metricOf, setMetric, metricAgg, workoutHabits, allWorkouts, collectJournal,
       parseGarminCSV, applyImport, guessHabit, allTimeTotals, _get:()=>data, _set:(d)=>{data=d;} } };
