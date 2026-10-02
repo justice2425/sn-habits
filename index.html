@@ -14,7 +14,7 @@
        SN bridge uses postMessage, which CSP does not govern (see origin checks in SNBridge).
      - base-uri and form-action 'none' stop <base> hijacking and form submissions.
      A meta-tag CSP can't set frame-ancestors; embedding is handled by SNBridge's origin pinning. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-XCLJalpEL1BUsXteScWBnw+DIMWRJqNonaW3qw6AoAk='; style-src 'unsafe-inline' data: https://app.standardnotes.com http://localhost:* http://127.0.0.1:*; font-src data: https://app.standardnotes.com http://localhost:* http://127.0.0.1:*; img-src data: blob: https://app.standardnotes.com http://localhost:* http://127.0.0.1:*; connect-src 'none'; media-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-a/hDbZTqIYesif2C7L6u6gp+U54UtQAAqv1LEBXQ7Qw='; style-src 'unsafe-inline' data: https://app.standardnotes.com http://localhost:* http://127.0.0.1:*; font-src data: https://app.standardnotes.com http://localhost:* http://127.0.0.1:*; img-src data: blob: https://app.standardnotes.com http://localhost:* http://127.0.0.1:*; connect-src 'none'; media-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'" />
 <meta name="referrer" content="no-referrer" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
 <title>Habits</title>
@@ -34,10 +34,16 @@
     --warning:   var(--sn-stylekit-warning-color, #c47900);
     --radius: 8px;
     --shadow: 0 6px 24px rgba(0,0,0,0.18);
+    /* Derived from the theme's own text and background colours, so they keep their contrast in any light or dark theme:
+       --line-strong outlines controls (WCAG 2.2 asks 3:1 for control boundaries), --text-soft is small secondary text (4.5:1),
+       --icon colours icon-only buttons. */
+    --line-strong: color-mix(in srgb, var(--fg) 55%, var(--bg));
+    --text-soft:   color-mix(in srgb, var(--fg) 70%, var(--bg));
+    --icon:        color-mix(in srgb, var(--fg) 82%, var(--bg));
   }
   * { box-sizing: border-box; }
   html, body { margin:0; padding:0; height:100%; background:var(--bg); color:var(--fg);
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; font-size:14px; line-height:1.4; -webkit-font-smoothing:antialiased; }
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif,"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol","Noto Color Emoji"; font-size:14px; line-height:1.4; -webkit-font-smoothing:antialiased; }
   #app { display:flex; flex-direction:column; height:100vh; overflow:hidden; }
   button,input,select,textarea { font-family:inherit; font-size:inherit; color:var(--fg); }
   button { background:transparent; border:1px solid transparent; color:var(--fg); border-radius:6px; padding:5px 10px; cursor:pointer; line-height:1.2; }
@@ -47,7 +53,7 @@
   button.danger { color:var(--danger); }
   input[type=text],input[type=number],input[type=date],input[type=search],select { background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:6px 8px; outline:none; width:100%; }
   input:focus,select:focus { border-color:var(--accent); }
-  ::placeholder { color:var(--muted-2); }
+  ::placeholder { color:var(--text-soft); }
 
   .toolbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:8px 12px; border-bottom:1px solid var(--border); background:var(--panel); }
   .toolbar .grow { flex:1 1 auto; }
@@ -111,7 +117,7 @@
   /* Grid */
   .grid-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }
   .gridv { display:grid; gap:4px; align-items:center; width:max-content; }
-  .gridv .gdow { text-align:center; font-size:10px; color:var(--muted-2); }
+  .gridv .gdow { text-align:center; font-size:10px; color:var(--text-soft); }
   .gridv .glabel { white-space:nowrap; padding-right:8px; font-size:13px; position:sticky; left:0; background:var(--bg); z-index:1; }
   .cell { width:18px; height:18px; border-radius:4px; background:var(--panel); border:1px solid var(--border); display:block; cursor:pointer; }
   .cell.done { border-color:transparent; }
@@ -161,7 +167,7 @@
   .month-title { font-weight:600; min-width:150px; }
   .month-head select { width:auto; margin-left:auto; }
   .cal { display:grid; grid-template-columns:repeat(7,1fr); gap:6px; max-width:560px; }
-  .cal-dow { text-align:center; font-size:11px; color:var(--muted-2); }
+  .cal-dow { text-align:center; font-size:11px; color:var(--text-soft); }
   .cal-cell { position:relative; border:1px solid var(--border); border-radius:6px; padding:4px; min-height:46px; }
   .cal-cell.empty { border:none; }
   .cal-cell.caltoday { outline:2px solid var(--accent); outline-offset:-2px; }
@@ -172,7 +178,7 @@
 
   /* Calendar: day-by-day log */
   .dl { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)) minmax(54px,.85fr); gap:5px; max-width:860px; }
-  .dl-dow { text-align:center; font-size:11px; color:var(--muted-2); }
+  .dl-dow { text-align:center; font-size:11px; color:var(--text-soft); }
   .dl-wkh { text-align:right; padding-right:4px; }
   .dl-cell { position:relative; border:1px solid var(--border); border-radius:8px; padding:4px 5px 8px; min-height:74px; cursor:pointer; display:flex; flex-direction:column; gap:3px; overflow:hidden; background:var(--bg); }
   .dl-cell:hover, .dl-cell:focus-visible { border-color:var(--accent); outline:none; }
@@ -219,7 +225,7 @@
   .year-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }
   .year { display:grid; grid-template-rows:repeat(7,12px); grid-auto-flow:column; grid-auto-columns:12px; gap:3px; width:max-content; }
   .ycell { width:12px; height:12px; border-radius:2px; background:var(--panel); border:1px solid var(--border); }
-  .ymonths { display:flex; gap:3px; margin-bottom:4px; font-size:10px; color:var(--muted-2); }
+  .ymonths { display:flex; gap:3px; margin-bottom:4px; font-size:10px; color:var(--text-soft); }
   .journal .jhead { font-size:16px; font-weight:600; margin-bottom:4px; }
   .journal .jday { margin:14px 0 2px; font-size:12px; color:var(--muted); font-weight:600; }
   .journal { max-width:720px; }
@@ -252,7 +258,7 @@
   .ins-sub { margin-top:12px !important; font-weight:600; }
   .ins-rval-w { width:92px; white-space:nowrap; }
   .ins-mood { flex:1; font-size:13px; font-variant-numeric:tabular-nums; }
-  .ins-caveat { color:var(--muted-2,var(--muted)); font-style:italic; font-size:11px; }
+  .ins-caveat { color:var(--text-soft); font-style:italic; font-size:11px; }
   .restpill { font-size:12px; color:var(--muted); border:1px solid var(--border); border-radius:999px; padding:3px 10px; cursor:pointer; flex:0 0 auto; }
   .restpill.on { color:var(--accent); border-color:var(--accent); }
 
@@ -339,7 +345,7 @@
   .tr-hic, .tr-sic { width:22px; text-align:center; flex:0 0 auto; }
   .tr-hname, .tr-sname { flex:1; min-width:0; }
   .tr-hval, .tr-sval { flex:0 0 auto; color:var(--muted); font-size:13px; text-align:right; }
-  .tr-sdate { color:var(--muted-2); font-size:12px; }
+  .tr-sdate { color:var(--text-soft); font-size:12px; }
 
   /* ---- Reflective journal ---- */
   .jcompose { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:12px; margin-bottom:12px; }
@@ -363,14 +369,15 @@
   .md-quote { margin:0 0 .7em; padding:2px 10px; border-left:3px solid var(--border); color:var(--muted); }
   .md.clamp { max-height:9.5em; overflow:hidden; -webkit-mask-image:linear-gradient(#000 65%, transparent); mask-image:linear-gradient(#000 65%, transparent); }
   .jmore { border:none; padding:2px 0; color:var(--accent); font-size:12px; background:transparent; }
-  .journal .ji-meta { font-size:11px; color:var(--muted-2); margin-top:2px; }
+  .journal .ji-meta { font-size:11px; color:var(--text-soft); margin-top:2px; }
   .journal .jedit { flex:0 0 auto; align-self:flex-start; font-size:12px; padding:3px 8px; opacity:.55; }
   .journal .jitem:hover .jedit, .journal .jedit:focus { opacity:1; }
   .jactions { display:flex; align-items:center; gap:8px; margin-top:8px; }
   .jmood { display:flex; gap:4px; }
-  .jmood-b { font-size:20px; border:1px solid transparent; background:transparent; border-radius:8px; padding:2px 5px; cursor:pointer; filter:grayscale(1); opacity:.7; }
-  .jmood-b:hover { opacity:1; }
-  .jmood-b.on { filter:none; opacity:1; border-color:var(--accent); background:var(--panel); }
+  .jmood-b { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border:1px solid var(--border); background:transparent; border-radius:8px; padding:0; cursor:pointer; color:var(--muted); }
+  .jmood-b svg { width:24px; height:24px; display:block; }
+  .jmood-b:hover { color:var(--fg); border-color:var(--line-strong); }
+  .jmood-b.on { color:var(--accent); border-color:var(--accent); background:var(--panel); box-shadow:inset 0 0 0 1px var(--accent); }
   .jsearch { width:100%; margin-bottom:10px; }
   /* daily check-in, weight, experiments, year in review */
   .tgcard.ci-card { cursor:default; } .tgcard.ci-card:hover { border-color:var(--border); }
@@ -477,7 +484,8 @@
     .ci-card input { min-height:44px; }
     .weightview .iconbtn, .jitem .dc-actions .iconbtn, .ex-item .iconbtn, .dc-modal .iconbtn, .weightview .seg button, .dc-tabs button { min-width:44px; }
     .ci-link, .wv-chip, .dc-picks button, .wv-tile-act { min-height:40px !important; padding:6px 12px !important; }
-    .ci-card .jmood-b { min-width:44px; min-height:44px; font-size:24px; }
+    .ci-card .jmood-b, .jmood-b { width:44px; height:44px; }
+    .jmood-b svg { width:28px; height:28px; }
     .dc-conf input[type=range] { height:44px; }
     .ci-w, .weightview input, .weightview select, .dc-modal input, .dc-modal textarea, .dc-modal select { font-size:16px; }
     .wv-row { padding:2px 0; }
@@ -506,6 +514,25 @@
   .dc-band { display:flex; align-items:center; gap:8px; font-size:12.5px; margin:5px 0; }
   .dc-band .dc-bl { flex:0 0 150px; }
   .dc-band .dc-bv { flex:0 0 118px; text-align:right; color:var(--muted); }
+  /* ---- Visibility pass: clearer buttons, icons and small text (measured against WCAG 2.2 contrast targets) ---- */
+  button.ghost, .ghost, #addBtn, #undoBtn, #settingsBtn, #archBtn, .seg, .calzoom, .wpill, .restpill, .jtool, .jmood-b, .wv-chip, .dc-picks button,
+  input[type=text], input[type=number], input[type=date], input[type=search], select, textarea { border-color:var(--line-strong); }
+  .ghost { font-weight:500; }
+  button.ghost:hover:not(:disabled), .iconbtn:hover:not(:disabled) { border-color:var(--fg); color:var(--fg); }
+  .seg > button + button, .calzoom-btn + .calzoom-btn { box-shadow:inset 1px 0 0 var(--line-strong); }
+  .iconbtn { color:var(--icon); border:1px solid var(--line-strong); border-radius:6px; }
+  button.danger, .danger { color:color-mix(in srgb, var(--danger) 78%, var(--fg)); border-color:currentColor; }
+  .journal .jedit { opacity:1; }   /* was faded until hover, which never happens on touch screens */
+  .streak, .medal { color:color-mix(in srgb, var(--warning) 62%, var(--fg)); }
+  .streak.risk { color:color-mix(in srgb, var(--danger) 72%, var(--fg)); }
+  .wv-goallab { color:color-mix(in srgb, var(--success) 65%, var(--fg)); }
+  .wk span { border-color:var(--line-strong); }
+  .dl-cell.fut { opacity:1; background:transparent; }
+  .dl-cell.fut .dl-num { color:var(--text-soft); font-weight:500; }
+  .tr-badge:not(.got) { opacity:1; filter:none; }
+  .tr-badge:not(.got) .tr-ic { opacity:.45; filter:grayscale(1); }
+  .tr-badge:not(.got) .tr-name { color:var(--text-soft); }
+  :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 </style>
 </head>
 <body>
@@ -1428,7 +1455,7 @@ const App = (function () {
         main.onclick=()=>{ const prev=currentStreak(h); toggleCheck(h,today); persist(); render(); celebrateIf(prev); };
         const chk=el('button','bigcheck'+(done?' done':''));
         if(done){ const c=safeColor(h.color,'var(--success)'); chk.style.background=c; chk.style.borderColor=c; }
-        else { chk.style.borderColor=safeColor(h.color,'var(--muted-2)'); }
+        else { chk.style.borderColor=safeColor(h.color,'var(--line-strong)'); chk.style.borderColor=ringColor(h.color); }
         chk.setAttribute('aria-label', done?'Mark not done':'Mark done');
         chk.title = done?'Done — tap to undo':'Tap to mark done';
         chk.onclick=(e)=>{ e.stopPropagation(); const prev=currentStreak(h); toggleCheck(h,today); persist(); render(); celebrateIf(prev); };
@@ -1734,7 +1761,7 @@ const App = (function () {
           const mi=el('button',null,'−'); mi.setAttribute('aria-label','One less'); mi.onclick=()=>{ incCount(h,cur,-1); persist(); render(); };
           c.appendChild(mi); c.appendChild(el('span','val',esc(v+' / '+(h.goal||1)))); const pl=el('button',null,'+'); pl.setAttribute('aria-label','One more'); pl.onclick=()=>{ incCount(h,cur,1); persist(); render(); }; c.appendChild(pl); row.appendChild(c);
         } else { const chk=el('button','bigcheck dp-chk'+(done?' done':'')); const col=safeColor(h.color,'var(--success)');
-          if(done){ chk.style.background=col; chk.style.borderColor=col; } else chk.style.borderColor=safeColor(h.color,'var(--muted-2)');
+          if(done){ chk.style.background=col; chk.style.borderColor=col; } else { chk.style.borderColor=safeColor(h.color,'var(--line-strong)'); chk.style.borderColor=ringColor(h.color); }
           chk.setAttribute('aria-label',(done?'Mark not done: ':'Mark done: ')+h.name); chk.onclick=()=>{ toggleCheck(h,cur); persist(); render(); }; row.appendChild(chk); }
         if(!sched&&!done) row.classList.add('dim');
         body.appendChild(row);
@@ -1846,9 +1873,17 @@ const App = (function () {
     if(extra){ const sp=el('span'); sp.style.flex='1'; bar.appendChild(sp); extra.forEach(x=>bar.appendChild(x)); }
     return bar;
   }
+  // Faces are drawn (not emoji) so the picker can't turn invisible where emoji fonts don't render.
+  const MOOD_WORDS=['','very bad','bad','okay','good','great'];
+  const MOOD_MOUTH=['','M8 16.5Q12 12 16 16.5','M8.5 15.8Q12 13.8 15.5 15.8','M8.5 15H15.5','M8.5 14Q12 16.6 15.5 14','M7.8 13.4Q12 18.6 16.2 13.4'];
+  function moodFace(v){ return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9.2" fill="none" stroke="currentColor" stroke-width="1.6"/>'
+    +'<circle cx="9" cy="10" r="1.2" fill="currentColor"/><circle cx="15" cy="10" r="1.2" fill="currentColor"/><path d="'+MOOD_MOUTH[v]+'" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>'; }
+  // Unchecked rings: the habit's colour blended 35% toward the text colour, so pale colours (orange, teal) keep a visible edge
+  // in light and dark themes. Set after a plain fallback, so browsers without color-mix keep the plain colour.
+  function ringColor(c){ return 'color-mix(in srgb, '+safeColor(c,'var(--line-strong)')+' 65%, var(--fg))'; }
   function moodPicker(initial,onChange){ const row=el('div','jmood'); let chosen=initial||0;
-    MOODS.forEach(m=>{ const b=el('button','jmood-b'+(chosen===m.v?' on':''),m.e); b.type='button'; b.title='Mood '+m.v+' of 5'; b.setAttribute('aria-label','Mood '+m.v+' of 5');
-      b.onclick=()=>{ chosen=(chosen===m.v?0:m.v); [...row.children].forEach(c=>c.classList.remove('on')); if(chosen) b.classList.add('on'); onChange(chosen); }; row.appendChild(b); });
+    MOODS.forEach(m=>{ const b=el('button','jmood-b'+(chosen===m.v?' on':''),moodFace(m.v)); b.type='button'; b.title=m.v+' of 5: '+MOOD_WORDS[m.v]; b.setAttribute('aria-label',m.v+' of 5, '+MOOD_WORDS[m.v]); b.setAttribute('aria-pressed',String(chosen===m.v));
+      b.onclick=()=>{ chosen=(chosen===m.v?0:m.v); [...row.children].forEach(c=>{ c.classList.remove('on'); c.setAttribute('aria-pressed','false'); }); if(chosen){ b.classList.add('on'); b.setAttribute('aria-pressed','true'); } onChange(chosen); }; row.appendChild(b); });
     return row; }
   function dateInput(val,onChange){ const i=el('input'); i.type='date'; i.max=todayStr(); i.value=val; i.className='jdate'; i.setAttribute('aria-label','Entry date');
     i.onchange=()=>{ if(goodDate(i.value)&&i.value<=todayStr()) onChange(i.value); else i.value=val; }; return i; }
@@ -2323,6 +2358,7 @@ const App = (function () {
     const y=addDays(today,-1);
     if(new Date().getHours()<12 && !ratings()[y]){ const yr=el('div','ci-row'); yr.appendChild(el('span','ci-l','How was yesterday?')); yr.appendChild(moodPicker(0,v=>{ setRating(y,v); persist(); render(); })); card.appendChild(yr); }
     const rr=el('div','ci-row'); rr.appendChild(el('span','ci-l','How was today?')); rr.appendChild(moodPicker(ratings()[today]||0,v=>{ setRating(today,v); persist(); render(); })); card.appendChild(rr);
+    if(!Object.keys(ratings()).length) card.appendChild(el('div','ci-note','Rate your whole day from 1 (very bad) to 5 (great), ideally each evening. It feeds your mood trends, personal experiments, Year in review and the AI export. Before noon, Habits also asks about yesterday if you missed it.'));
     // experiments running today: show today's assignment only (never future days)
     experiments().filter(x=>expStatus(x)==='running').forEach(x=>{ const a=expOn(x,today); if(a==null) return;
       const row=el('div','ci-row'); const t=el('span','ci-exp'); const nm=el('strong'); nm.textContent='🧪 '+x.name+': '; t.appendChild(nm);
