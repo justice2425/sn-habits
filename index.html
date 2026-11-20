@@ -14,7 +14,7 @@
        SN bridge uses postMessage, which CSP does not govern (see origin checks in SNBridge).
      - base-uri and form-action 'none' stop <base> hijacking and form submissions.
      A meta-tag CSP can't set frame-ancestors; embedding is handled by SNBridge's origin pinning. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-fDPV48877tCRME4uE5WfVqWwqR759BByUs68Iikpvs8='; style-src 'unsafe-inline' data: https://app.standardnotes.com http://localhost:* http://127.0.0.1:*; font-src data: https://app.standardnotes.com http://localhost:* http://127.0.0.1:*; img-src data: blob: https://app.standardnotes.com http://localhost:* http://127.0.0.1:*; connect-src 'none'; media-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-CjeGruQE2VHiaYWRwzkBuoItEN/TpMDbF6+S+ZHmtCU='; style-src 'unsafe-inline' data: https://app.standardnotes.com http://localhost:* http://127.0.0.1:*; font-src data: https://app.standardnotes.com http://localhost:* http://127.0.0.1:*; img-src data: blob: https://app.standardnotes.com http://localhost:* http://127.0.0.1:*; connect-src 'none'; media-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'" />
 <meta name="referrer" content="no-referrer" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
 <title>Habits</title>
@@ -541,6 +541,25 @@
   .pc-ref label { display:block; font-size:13px; font-weight:600; margin-bottom:4px; }
   .pc-ref textarea { width:100%; min-height:90px; box-sizing:border-box; border:1px solid var(--line-strong); border-radius:8px; padding:8px; background:var(--bg); color:var(--fg); }
   .pc-status { font-size:12px; color:var(--text-soft); min-height:1.2em; margin-top:4px; }
+  .dp-poem { border-top:1px solid var(--border); }
+  .dp-poem .pc-body { margin-top:0; }
+  /* ---- Poems tab ---- */
+  .poemsview { max-width:720px; }
+  .pv-head { font-size:16px; font-weight:600; margin-bottom:2px; }
+  .pv-bar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:12px 0 4px; }
+  .pv-search { flex:1 1 200px; min-width:0; width:auto; margin:0; }
+  .pv-chk { font-size:13px; display:inline-flex; align-items:center; gap:4px; min-height:36px; cursor:pointer; }
+  .poemsview .jday { margin:14px 0 2px; font-size:12px; color:var(--muted); font-weight:600; }
+  .pv-row { display:flex; align-items:center; gap:10px; width:100%; text-align:left; background:none; border:none; border-top:1px solid var(--border); border-radius:0; padding:8px 2px; min-height:48px; cursor:pointer; color:var(--fg); }
+  .pv-row:hover .pv-title { text-decoration:underline; }
+  .pv-row .pc-ic svg { width:18px; height:18px; }
+  .pv-txt { flex:1; min-width:0; display:flex; flex-direction:column; }
+  .pv-title { font-family:var(--serif); font-size:16px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .pv-by { font-size:12.5px; color:var(--text-soft); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .pv-refl { flex:0 0 auto; font-size:13px; color:var(--text-soft); }
+  .pv-more { margin-top:10px; }
+  .pv-empty { padding:12px 0; }
+  .pv-note { margin-top:14px; }
   /* ---- Visibility pass: clearer buttons, icons and small text (measured against WCAG 2.2 contrast targets) ---- */
   button.ghost, .ghost, #addBtn, #undoBtn, #settingsBtn, #archBtn, .seg, .calzoom, .wpill, .restpill, .jtool, .jmood-b, .wv-chip, .dc-picks button,
   input[type=text], input[type=number], input[type=date], input[type=search], select, textarea { border-color:var(--line-strong); }
@@ -575,6 +594,7 @@
       <button data-view="stats">Stats</button>
       <button data-view="insights">Insights</button>
       <button data-view="journal">Journal</button>
+      <button data-view="poems">Poems</button>
     </div>
     <span class="grow"></span>
     <button class="ghost" id="archBtn" style="display:none;">Archived</button>
@@ -1389,6 +1409,7 @@ const App = (function () {
     else if(data.ui.view==='training') s.appendChild(renderTraining());
     else if(data.ui.view==='weight') s.appendChild(renderWeight());
     else if(data.ui.view==='journal') s.appendChild(renderJournal());
+    else if(data.ui.view==='poems') s.appendChild(renderPoems());
     else if(data.ui.view==='stats') s.appendChild(renderStats());
     else if(data.ui.view==='insights') s.appendChild(renderInsights());
     else s.appendChild(renderToday());
@@ -1737,15 +1758,18 @@ const App = (function () {
     wrap.appendChild(grid);
     wrap.appendChild(el('div','small dl-legend', hbt
       ? 'Showing '+esc(hbt.name)+': tap a day to mark it done or undo. Pick “All habits” to see everything again.'
-      : 'Dots = habits done (in each habit’s colour) · bar = share of that day’s due habits · 📝 = journal/notes · Week column = completion %, training time and distance. Tap a day to see and edit everything from it.'));
+      : 'Dots = habits done (in each habit’s colour) · bar = share of that day’s due habits · 📝 = journal/notes · Week column = completion %, training time and distance. Tap a day to see and edit everything from it, including that day’s poems.'));
     return wrap;
   }
 
   /* ---- Day panel: everything about one day, editable in one place ---- */
   let dayPanelRefresh=null;
-  function openDayPanel(date){
+  function openDayPanel(date,opts){
     document.querySelectorAll('.daypanel-ov').forEach(o=>o.remove());
+    opts=opts||{};
     let cur=date;
+    // which of the day's poems is open, and whether its context is showing; kept while stepping between days
+    let dpPoem=opts.poems?(opts.slot==='pm'?'pm':'am'):null, dpPoemCtx=false, scrollToPoems=!!opts.poems;
     const ov=el('div','overlay daypanel-ov'); ov.style.display='flex'; ov.style.zIndex='105';
     const box=el('div','modal daypanel'); box.setAttribute('role','dialog'); box.setAttribute('aria-modal','true');
     ov.appendChild(box); document.body.appendChild(ov);
@@ -1794,6 +1818,29 @@ const App = (function () {
         if(!sched&&!done) row.classList.add('dim');
         body.appendChild(row);
       });
+      // poems: the morning and evening poems shown on this day, with their context notes
+      const slots=(cur===today&&poemSlotNow()==='am')?['am']:['am','pm'];   // today's evening poem appears at 3 pm, as on Today
+      const psec=el('div','dp-sec','Poems'); psec.id='dpPoems'; body.appendChild(psec);
+      if(cur<POEM_EPOCH) body.appendChild(el('div','small','The poem rotation starts on '+esc(fmtDate(POEM_EPOCH))+', '+POEM_EPOCH.slice(0,4)+'; these are the poems this date maps to.'));
+      slots.forEach(slot=>{
+        const p=poemShownOn(cur,slot), au=POEM_AUTHORS[p.a]||[p.a,''], label=slot==='am'?'Morning poem':'Evening poem', open=dpPoem===slot;
+        const item=el('div','dp-poem');
+        const hd=el('button','pc-head'); hd.type='button'; hd.setAttribute('aria-expanded',String(open));
+        hd.appendChild(el('span','pc-ic '+slot,POEM_ICON[slot])); hd.appendChild(el('span','pc-lab',esc(label)));
+        const sub=el('span','pc-sub'); sub.textContent=p.t+' — '+au[0]; hd.appendChild(sub);
+        const tog=el('span','pc-tog',open?'−':'+'); tog.setAttribute('aria-hidden','true'); hd.appendChild(tog);
+        hd.setAttribute('aria-label',label+': '+p.t+', by '+au[0]+(open?'. Hide poem':'. Show poem'));
+        hd.onclick=()=>{ dpPoem=open?null:slot; draw(); };
+        item.appendChild(hd);
+        if(open){ const pb2=el('div','pc-body');
+          const prompt=poemPrompt(p,slot), ent=(data.entries||[]).find(e=>e.date===cur&&e.prompt===prompt);
+          const rb=el('button','ghost',ent?'✏️ Edit reflection':'✍️ Reflect'); rb.type='button';
+          rb.title=ent?'Edit the reflection you saved on this poem':'Write a reflection on this poem, saved to your Journal for this day';
+          rb.onclick=()=>{ if(ent) openEntry(ent.id); else openEntryEditor({ date:cur, prompt }); };
+          pb2.appendChild(poemView(p,dpPoemCtx,()=>{ dpPoemCtx=!dpPoemCtx; draw(); },[rb]));
+          item.appendChild(pb2); }
+        body.appendChild(item);
+      });
       // journal
       body.appendChild(el('div','dp-sec','Journal'));
       const ents=entriesOn(cur);
@@ -1804,6 +1851,7 @@ const App = (function () {
         it.appendChild(jBody('e:'+e.id,e.text)); body.appendChild(it); });
       const wb=el('button','ghost dp-write','✍️ Write about this day'); wb.onclick=()=>openEntryEditor({ date:cur, prompt:'' }); body.appendChild(wb);
       box.appendChild(body);
+      if(scrollToPoems){ scrollToPoems=false; requestAnimationFrame(()=>{ const s=box.querySelector('#dpPoems'); if(s) s.scrollIntoView({block:'start'}); }); }
     }
     dayPanelRefresh=()=>{ if(document.body.contains(ov)) draw(); else dayPanelRefresh=null; };
     draw();
@@ -2372,6 +2420,28 @@ const App = (function () {
   function poemFor(iso,slot){ const n=POEMS.length, k=daysBetweenISO(POEM_EPOCH,iso)*2+(slot==='pm'?1:0); return POEMS[poemOrder(Math.floor(k/n))[((k%n)+n)%n]]; }
   function poemSlotNow(){ return new Date().getHours()<15?'am':'pm'; }   // the evening poem takes over at 3 pm
   function poemPrompt(p,slot){ return 'Poem: “'+p.t+'” by '+(POEM_AUTHORS[p.a]||[p.a])[0]+' ('+(slot==='am'?'morning':'evening')+')'; }
+  // The poem shown on a past day. A reflection saved that day names its poem in its prompt, so that wins over the date
+  // rotation (which would differ if the collection has changed since); otherwise the rotation gives the day's poem.
+  let _poemByPrompt=null;
+  function poemShownOn(iso,slot){
+    if(!_poemByPrompt){ _poemByPrompt={}; POEMS.forEach(q=>{ _poemByPrompt[poemPrompt(q,'am')]=q; _poemByPrompt[poemPrompt(q,'pm')]=q; }); }
+    const tag=slot==='am'?'(morning)':'(evening)';
+    const e=(data&&data.entries||[]).find(x=>x.date===iso&&typeof x.prompt==='string'&&x.prompt.endsWith(tag)&&_poemByPrompt[x.prompt]);
+    return e?_poemByPrompt[e.prompt]:poemFor(iso,slot); }
+  // Title, author, text, source and the context notes: shared by Today's card and the Calendar's day panel.
+  function poemView(p,ctxOpen,onCtx,extra){
+    const frag=document.createDocumentFragment(), au=POEM_AUTHORS[p.a]||[p.a,''];
+    const h=el('div','pc-title'); h.textContent=p.t; frag.appendChild(h);
+    const by=el('div','pc-by'); by.textContent=au[0]+(au[1]?' ('+au[1]+')':''); frag.appendChild(by);
+    const tx=el('div','pc-text'); tx.setAttribute('lang','en');
+    p.x.split('\n').forEach(line=>{ const d=el('div','pl'); d.textContent=line||'\u00a0'; tx.appendChild(d); }); frag.appendChild(tx);
+    const src=el('div','pc-src'); src.textContent='Text: '+(POEM_SOURCES[p.s]||'')+' Via Project Gutenberg.'; frag.appendChild(src);
+    const acts=el('div','pc-actions'); const cb=el('button','ghost',ctxOpen?'Hide context':'Context'); cb.type='button'; cb.setAttribute('aria-expanded',String(ctxOpen));
+    cb.onclick=onCtx; acts.appendChild(cb); (extra||[]).forEach(b=>acts.appendChild(b)); frag.appendChild(acts);
+    if(ctxOpen){ const dl=document.createElement('dl'); dl.className='pc-ctx';
+      [['When',p.w],['Background',p.b],['Interpretations',p.r+' '+p.m]].forEach(([k,v])=>{ const dt=document.createElement('dt'); dt.textContent=k; const dd=document.createElement('dd'); dd.textContent=v; dl.appendChild(dt); dl.appendChild(dd); });
+      frag.appendChild(dl); }
+    return frag; }
   const POEM_ICON={ am:'<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2.6v2.4M12 19v2.4M2.6 12H5M19 12h2.4M5.4 5.4l1.7 1.7M16.9 16.9l1.7 1.7M5.4 18.6l1.7-1.7M16.9 7.1l1.7-1.7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg>',
     pm:'<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 14.6A8.2 8.2 0 0 1 9.4 4 8.2 8.2 0 1 0 20 14.6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>' };
   function poemCard(){ const today=todayStr(), now=poemSlotNow(); const slot=(poemSlotView==='am'||(poemSlotView==='pm'&&now==='pm'))?poemSlotView:now;
@@ -2388,16 +2458,9 @@ const App = (function () {
     if(now==='pm'){ const seg=el('div','seg'); seg.style.marginBottom='8px'; seg.setAttribute('role','group'); seg.setAttribute('aria-label','Which poem');
       [['am','Morning'],['pm','Evening']].forEach(([k,l])=>{ const b=el('button',slot===k?'active':'',l); b.type='button'; b.setAttribute('aria-pressed',String(slot===k)); b.onclick=()=>{ poemSlotView=k; render(); }; seg.appendChild(b); });
       body.appendChild(seg); }
-    const h=el('div','pc-title'); h.textContent=p.t; body.appendChild(h);
-    const by=el('div','pc-by'); by.textContent=au[0]+(au[1]?' ('+au[1]+')':''); body.appendChild(by);
-    const tx=el('div','pc-text'); tx.setAttribute('lang','en');
-    p.x.split('\n').forEach(line=>{ const d=el('div','pl'); d.textContent=line||'\u00a0'; tx.appendChild(d); }); body.appendChild(tx);
-    const src=el('div','pc-src'); src.textContent='Text: '+(POEM_SOURCES[p.s]||'')+' Via Project Gutenberg.'; body.appendChild(src);
-    const acts=el('div','pc-actions'); const cb=el('button','ghost',poemCtx?'Hide context':'Context'); cb.type='button'; cb.setAttribute('aria-expanded',String(poemCtx));
-    cb.onclick=()=>{ poemCtx=!poemCtx; render(); }; acts.appendChild(cb); body.appendChild(acts);
-    if(poemCtx){ const dl=document.createElement('dl'); dl.className='pc-ctx';
-      [['When',p.w],['Background',p.b],['Interpretations',p.r+' '+p.m]].forEach(([k,v])=>{ const dt=document.createElement('dt'); dt.textContent=k; const dd=document.createElement('dd'); dd.textContent=v; dl.appendChild(dt); dl.appendChild(dd); });
-      body.appendChild(dl); }
+    const eb=el('button','ghost','Earlier poems'); eb.type='button'; eb.title='Open the Poems tab: every poem shown so far';
+    eb.onclick=()=>{ data.ui.view='poems'; saveOut(); render(); window.scrollTo(0,0); };
+    body.appendChild(poemView(p,poemCtx,()=>{ poemCtx=!poemCtx; render(); },[eb]));
     // reflection: saved as an ordinary Journal entry for today, with the poem as its prompt
     const prompt=poemPrompt(p,slot), findE=()=>(data.entries||[]).find(e=>e.date===today&&e.prompt===prompt);
     const ref=el('div','pc-ref'); const lab=el('label',null,'Your reflection'); const ta=el('textarea'); ta.id='pcRef'; lab.htmlFor='pcRef';
@@ -2411,6 +2474,75 @@ const App = (function () {
     ta.oninput=()=>{ st.textContent='Saving…'; clearTimeout(tmr); tmr=setTimeout(save,900); }; ta.onblur=()=>{ if(tmr||ta.value.replace(/\s+$/,'')!==((findE()||{}).text||'')) save(); };
     ref.appendChild(lab); ref.appendChild(ta); ref.appendChild(st); body.appendChild(ref);
     card.appendChild(body); return card; }
+
+  /* ---- Poems tab: every poem shown so far, by date or by poem ---- */
+  let poemsMode='date', poemsQuery='', poemsReflOnly=false, poemsLimit=60;
+  // Every slot shown from the start of the rotation up to now (today's evening poem from 3 pm), newest first.
+  // A reflection saved on a slot names its poem, which wins over the rotation (as in poemShownOn).
+  function poemHistory(){
+    const today=todayStr(), refl={}, out=[];
+    const byPrompt={}; POEMS.forEach(q=>{ byPrompt[poemPrompt(q,'am')]=[q,'am']; byPrompt[poemPrompt(q,'pm')]=[q,'pm']; });
+    (data.entries||[]).forEach(e=>{ const m=typeof e.prompt==='string'&&byPrompt[e.prompt]; if(m&&goodDate(e.date)) refl[e.date+'|'+m[1]]={ p:m[0], e }; });
+    for(let d=today; d>=POEM_EPOCH; d=addDays(d,-1)){
+      ['pm','am'].forEach(slot=>{ if(d===today&&slot==='pm'&&poemSlotNow()==='am') return;
+        const r=refl[d+'|'+slot]; out.push({ date:d, slot, p:r?r.p:poemFor(d,slot), entry:r?r.e:null }); }); }
+    return out; }
+  const _fold=t=>String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[\u2018\u2019\u201c\u201d]/g,"'").toLowerCase();
+  function poemMatches(p,q){ if(!q) return true; const hay=_fold(p.t+' '+(POEM_AUTHORS[p.a]||[p.a])[0]+' '+p.x);
+    return q.split(/\s+/).filter(Boolean).every(w=>hay.includes(w)); }
+  function renderPoems(){
+    const wrap=el('div','poemsview'); const hist=poemHistory();
+    const distinct=new Set(hist.map(r=>r.p.id)).size, nRefl=hist.filter(r=>r.entry).length;
+    wrap.appendChild(el('div','pv-head','Poems so far'));
+    wrap.appendChild(el('div','small',esc(hist.length+' poems shown since '+fmtDate(POEM_EPOCH)+', '+POEM_EPOCH.slice(0,4)+' · '+distinct+' of '+POEMS.length+' different poems · '+nRefl+' with a reflection')));
+    const bar=el('div','pv-bar');
+    const seg=el('div','seg'); seg.setAttribute('role','group'); seg.setAttribute('aria-label','List poems');
+    [['date','By date'],['poem','By poem']].forEach(([k,l])=>{ const b=el('button',poemsMode===k?'active':'',l); b.type='button'; b.setAttribute('aria-pressed',String(poemsMode===k));
+      b.onclick=()=>{ poemsMode=k; poemsLimit=60; render(); }; seg.appendChild(b); });
+    bar.appendChild(seg);
+    const search=el('input','jsearch pv-search'); search.type='search'; search.placeholder='Search title, poet or a line…'; search.value=poemsQuery; search.setAttribute('aria-label','Search poems');
+    bar.appendChild(search);
+    const rl=el('label','pv-chk'); const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=poemsReflOnly; rl.appendChild(cb); rl.appendChild(document.createTextNode(' Reflected on'));
+    bar.appendChild(rl); wrap.appendChild(bar);
+    const list=el('div','pv-list'); wrap.appendChild(list);
+    search.oninput=()=>{ poemsQuery=search.value; poemsLimit=60; renderPoemsList(list,hist); };
+    cb.onchange=()=>{ poemsReflOnly=cb.checked; poemsLimit=60; renderPoemsList(list,hist); };
+    renderPoemsList(list,hist);
+    wrap.appendChild(el('div','small pv-note','Tap a poem to open that day, with its context notes and your reflection. The list starts on the day the rotation began, which may be before you started using Habits.'));
+    return wrap; }
+  function poemRow(p,slot,line,reflN,onOpen,noAuthor){
+    const au=POEM_AUTHORS[p.a]||[p.a,''];
+    const b=el('button','pv-row'); b.type='button'; b.onclick=onOpen;
+    b.appendChild(el('span','pc-ic '+slot,POEM_ICON[slot]));
+    const tx=el('span','pv-txt'); const t=el('span','pv-title'); t.textContent=p.t; tx.appendChild(t);
+    const by=el('span','pv-by'); by.textContent=noAuthor?line:au[0]+(line?' · '+line:''); tx.appendChild(by); b.appendChild(tx);
+    if(reflN){ const r=el('span','pv-refl','✍️'+(reflN>1?' '+reflN:'')); r.title=reflN>1?reflN+' reflections':'You reflected on this'; b.appendChild(r); }
+    b.setAttribute('aria-label',p.t+', by '+au[0]+(line?'. '+line:'')+(reflN?'. Reflected on':''));
+    return b; }
+  function renderPoemsList(list,hist){
+    list.innerHTML=''; const q=_fold(poemsQuery).trim(), thisYear=todayStr().slice(0,4);
+    let rows=hist.filter(r=>poemMatches(r.p,q));
+    if(poemsMode==='poem'){
+      const groups=new Map(); rows.forEach(r=>{ const g=groups.get(r.p.id)||{ p:r.p, all:[], refl:0 }; g.all.push(r); if(r.entry) g.refl++; groups.set(r.p.id,g); });
+      let gs=[...groups.values()]; if(poemsReflOnly) gs=gs.filter(g=>g.refl);
+      const name=g=>(POEM_AUTHORS[g.p.a]||[g.p.a])[0], sur=g=>g.p.a==='delamare'?'de la Mare':name(g).split(' ').pop();
+      gs.sort((a,b)=>sur(a).localeCompare(sur(b))||name(a).localeCompare(name(b))||a.p.t.localeCompare(b.p.t));   // by surname
+      if(!gs.length){ list.appendChild(el('div','small pv-empty','No poems match.')); return; }
+      let lastAu=null;
+      gs.forEach(g=>{ const au=name(g); if(au!==lastAu){ list.appendChild(el('div','jday',esc(au))); lastAu=au; }
+        const last=g.all[0];   // hist is newest first
+        const line='shown '+g.all.length+(g.all.length===1?' time':' times')+' · last '+fmtDate(last.date)+(last.date.slice(0,4)!==thisYear?', '+last.date.slice(0,4):'');
+        list.appendChild(poemRow(g.p,last.slot,line,g.refl,()=>openDayPanel(last.date,{ poems:true, slot:last.slot }),true)); });
+      return; }
+    if(poemsReflOnly) rows=rows.filter(r=>r.entry);
+    if(!rows.length){ list.appendChild(el('div','small pv-empty','No poems match.')); return; }
+    let lastMon=null;
+    rows.slice(0,poemsLimit).forEach(r=>{ const mon=r.date.slice(0,7);
+      if(mon!==lastMon){ list.appendChild(el('div','jday',esc(new Date(r.date+'T00:00:00').toLocaleDateString(undefined,{month:'long',year:'numeric'})))); lastMon=mon; }
+      const when=new Date(r.date+'T00:00:00').toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'})+(r.date.slice(0,4)!==thisYear?', '+r.date.slice(0,4):'')+' · '+(r.slot==='am'?'morning':'evening');
+      list.appendChild(poemRow(r.p,r.slot,when,r.entry?1:0,()=>openDayPanel(r.date,{ poems:true, slot:r.slot }))); });
+    if(rows.length>poemsLimit){ const more=el('button','ghost pv-more','Show more ('+(rows.length-poemsLimit)+' older)'); more.type='button';
+      more.onclick=()=>{ poemsLimit+=120; renderPoemsList(list,hist); }; list.appendChild(more); } }
 
   /* ---- Daily check-in: morning weight (stored in lb), end-of-day rating (1-5, the journal's mood scale) ---- */
   const LB_MIN=50, LB_MAX=1000, KG2LB=2.20462262;
